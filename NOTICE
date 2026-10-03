@@ -1,0 +1,12 @@
+tibor-src/xai-sdk-php
+Unofficial PHP port of the SpaceXAI TypeScript SDK
+
+This repository is not an official xAI or SpaceXAI package.
+It is an independent port of the experimental TypeScript SDK published at
+https://github.com/xai-org/xai-sdk-ts (npm @xai-official/sdk), version 0.2.1.
+
+SpaceXAI TypeScript SDK
+Copyright 2026 SpaceXAI LLC
+
+This product includes software developed by SpaceXAI LLC
+and licensed under the Apache License, Version 2.0.

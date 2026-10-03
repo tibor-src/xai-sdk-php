@@ -1,0 +1,40 @@
+{
+    "name": "tibor-src/xai-sdk-php",
+    "description": "Unofficial PHP port of the experimental SpaceXAI TypeScript SDK (@xai-official/sdk).",
+    "type": "library",
+    "license": "Apache-2.0",
+    "keywords": ["spacexai", "grok", "sdk", "php"],
+    "homepage": "https://github.com/tibor-src/xai-sdk-php",
+    "support": {
+        "issues": "https://github.com/tibor-src/xai-sdk-php/issues",
+        "source": "https://github.com/tibor-src/xai-sdk-php"
+    },
+    "require": {
+        "php": ">=8.2",
+        "ext-curl": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*"
+    },
+    "require-dev": {
+        "pestphp/pest": "^3.8"
+    },
+    "autoload": {
+        "classmap": ["src/"],
+        "files": ["src/functions.php", "src/error-helpers.php"]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "TiborSrc\\XaiSdkPhp\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "pest"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable"
+}
