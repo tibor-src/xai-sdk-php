@@ -1,6 +1,6 @@
 # xai-sdk-php
 
-Early PHP port of the experimental [SpaceXAI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk`), plus a Laravel integration package in the same repository.
+Early PHP port of the experimental [SpaceXAI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk`). The Laravel integration is a separate package: [xai-sdk-laravel](https://github.com/tibor-src/xai-sdk-laravel).
 
 This SDK covers the TypeScript SDK's public surface: text (Responses API), images, video, voice (TTS/STT), files, batches, models, tokenizer, and server-side tools (web search, X search, code execution, MCP, and more).
 
@@ -53,28 +53,9 @@ Set your API key:
 export XAI_API_KEY="xai-..."
 ```
 
-### Laravel package (`xai-sdk/laravel`)
+### Laravel
 
-Add both packages from this monorepo:
-
-```json
-{
-    "repositories": [
-        {
-            "type": "path",
-            "url": "../xai-sdk-php"
-        },
-        {
-            "type": "path",
-            "url": "../xai-sdk-php/packages/laravel"
-        }
-    ],
-    "require": {
-        "xai-official/sdk-php": "*",
-        "xai-sdk/laravel": "*"
-    }
-}
-```
+The Laravel integration (`xai-sdk/laravel`) is not part of this repository. Install it from [xai-sdk-laravel](https://github.com/tibor-src/xai-sdk-laravel).
 
 Publish config (optional):
 
@@ -201,14 +182,6 @@ Matching the TypeScript SDK:
 ```bash
 composer install
 composer test
-```
-
-Laravel package tests:
-
-```bash
-cd packages/laravel
-composer install
-../../vendor/bin/pest
 ```
 
 ## License

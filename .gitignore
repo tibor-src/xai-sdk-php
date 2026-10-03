@@ -1,5 +1,4 @@
 /vendor/
-/packages/laravel/vendor/
 .phpunit.result.cache
 .phpunit.cache
 .idea/
