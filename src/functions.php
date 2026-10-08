@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace TiborSrc\XaiSdkPhp;
 
-const SDK_VERSION = '0.2.1';
+const SDK_VERSION = '0.2.3';
 const SDK_USER_AGENT = 'xai-sdk/' . SDK_VERSION . ' (php)';
 
 const ENCRYPTED_REASONING = 'reasoning.encrypted_content';
@@ -86,6 +86,7 @@ const KNOWN_MODEL_IDS = [
     'grok-4.20',
     'grok-4.20-0309-non-reasoning',
     'grok-4.20-0309-reasoning',
+    'grok-4.20-multi-agent',
     'grok-4.20-multi-agent-0309',
     'grok-4.3',
     'grok-4.5',
@@ -105,6 +106,7 @@ const KNOWN_IMAGE_MODEL_IDS = [
 const KNOWN_VIDEO_MODEL_IDS = [
     'grok-imagine-video',
     'grok-imagine-video-1.5',
+    'grok-imagine-video-1.5-lite',
 ];
 
 /** @var list<string> */

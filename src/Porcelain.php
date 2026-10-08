@@ -146,6 +146,118 @@ final class Porcelain
         return $out;
     }
 
+    /**
+     * Converts every Blob or File in a request body, however deeply nested, to a `{ url }` data URL.
+     *
+     * @param array<string, mixed> $body
+     * @return array<string, mixed>
+     */
+    public static function inlineMediaUrls(array $body, ?AbortSignal $signal): array
+    {
+        $signal?->throwIfAborted();
+        $inlined = self::inlineMediaValue($body, $signal);
+
+        return is_array($inlined) ? $inlined : $body;
+    }
+
+    /** Reads only the first bytes, since the blob can be a long recording. */
+    public static function readAudioFormat(Blob $blob, ?AbortSignal $signal): ?string
+    {
+        $signal?->throwIfAborted();
+
+        return self::sniffAudioFormat(substr($blob->bytes, 0, 64));
+    }
+
+    /** The audio containers the API detects, named by the file extensions it reads. Raw PCM has no header. */
+    public static function sniffAudioFormat(string $bytes): ?string
+    {
+        if (self::hasBytes($bytes, 0, [0x49, 0x44, 0x33])) {
+            return 'mp3';
+        }
+        $first = self::byteAt($bytes, 0);
+        $second = self::byteAt($bytes, 1);
+        // After the sync bits, MPEG Layer III frames have layer bits 01, and AAC's ADTS headers have 00.
+        if ($first === 0xff && ($second & 0xe6) === 0xe2) {
+            return 'mp3';
+        }
+        if ($first === 0xff && ($second & 0xf6) === 0xf0) {
+            return 'aac';
+        }
+        if (self::hasBytes($bytes, 0, [0x52, 0x49, 0x46, 0x46]) && self::hasBytes($bytes, 8, [0x57, 0x41, 0x56, 0x45])) {
+            return 'wav';
+        }
+        if (self::hasBytes($bytes, 0, [0x66, 0x4c, 0x61, 0x43])) {
+            return 'flac';
+        }
+        if (self::hasBytes($bytes, 0, [0x4f, 0x67, 0x67, 0x53])) {
+            // The first packet, which names the codec, follows the page's 27-byte header and segment table.
+            $offset = 27 + self::byteAt($bytes, 26);
+
+            return self::hasBytes($bytes, $offset, [0x4f, 0x70, 0x75, 0x73, 0x48, 0x65, 0x61, 0x64]) ? 'opus' : 'ogg';
+        }
+        if (self::hasBytes($bytes, 4, [0x66, 0x74, 0x79, 0x70])) {
+            $m4a = self::hasBytes($bytes, 8, [0x4d, 0x34, 0x41, 0x20]);
+            $m4b = self::hasBytes($bytes, 8, [0x4d, 0x34, 0x42, 0x20]);
+
+            return $m4a || $m4b ? 'm4a' : 'mp4';
+        }
+        if (self::hasBytes($bytes, 0, [0x1a, 0x45, 0xdf, 0xa3])) {
+            // Matroska and WebM share the EBML header, whose DocType tells them apart.
+            if (str_contains($bytes, 'matroska')) {
+                return 'mkv';
+            }
+
+            return str_contains($bytes, 'webm') ? 'webm' : null;
+        }
+
+        return null;
+    }
+
+    private static function inlineMediaValue(mixed $value, ?AbortSignal $signal): mixed
+    {
+        $signal?->throwIfAborted();
+        if ($value instanceof Blob) {
+            return ['url' => self::blobToDataUrl($value, $signal, self::sniffMediaType(...))];
+        }
+        if (is_list_array($value)) {
+            $out = [];
+            foreach ($value as $item) {
+                $out[] = self::inlineMediaValue($item, $signal);
+            }
+
+            return $out;
+        }
+        // Other values, such as a URL string, keep their own JSON form.
+        if (! is_record($value)) {
+            return $value;
+        }
+        $next = [];
+        foreach ($value as $key => $item) {
+            if ($key === '__proto__' || $key === 'constructor' || $key === 'prototype') {
+                continue;
+            }
+            $next[$key] = self::inlineMediaValue($item, $signal);
+        }
+
+        return $next;
+    }
+
+    /** Video generation takes images and reference audio, which is usually WAV or MP3. */
+    private static function sniffMediaType(string $bytes): string
+    {
+        $image = self::sniffImageType($bytes);
+        if ($image !== 'application/octet-stream') {
+            return $image;
+        }
+        $audio = self::sniffAudioFormat($bytes);
+
+        return match ($audio) {
+            'wav' => 'audio/wav',
+            'mp3' => 'audio/mpeg',
+            default => 'application/octet-stream',
+        };
+    }
+
     private static function inlineValue(mixed $value, ?AbortSignal $signal): mixed
     {
         $signal?->throwIfAborted();
@@ -220,6 +332,11 @@ final class Porcelain
         }
 
         return true;
+    }
+
+    private static function byteAt(string $bytes, int $offset): int
+    {
+        return isset($bytes[$offset]) ? ord($bytes[$offset]) : 0;
     }
 
     /** @param array<string, mixed> $value */

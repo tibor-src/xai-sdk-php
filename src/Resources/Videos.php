@@ -28,7 +28,7 @@ final class Videos
     public function generate(array $body, array $opts = []): Record
     {
         $signal = $opts['signal'] ?? null;
-        $payload = self::inlineImages($body, $signal instanceof AbortSignal ? $signal : null);
+        $payload = Porcelain::inlineMediaUrls($body, $signal instanceof AbortSignal ? $signal : null);
         $result = Transport::send($this->client, [
             'method' => 'POST',
             'path' => '/videos/generations',
@@ -113,34 +113,6 @@ final class Videos
             }
             Transport::sleepMs($interval, $signal);
         }
-    }
-
-    /** @param array<string, mixed> $body */
-    private static function inlineImages(array $body, ?AbortSignal $signal): array
-    {
-        $out = $body;
-        unset($out['image'], $out['reference_images'], $out['keyframes']);
-        if (array_key_exists('image', $body) && $body['image'] !== null) {
-            $out['image'] = Porcelain::inlineImageInput($body['image'], $signal);
-        }
-        if (array_key_exists('reference_images', $body) && $body['reference_images'] !== null) {
-            $images = [];
-            foreach ($body['reference_images'] as $item) {
-                $images[] = Porcelain::inlineImageInput($item, $signal);
-            }
-            $out['reference_images'] = $images;
-        }
-        if (array_key_exists('keyframes', $body) && $body['keyframes'] !== null) {
-            $frames = [];
-            foreach ($body['keyframes'] as $keyframe) {
-                $frame = is_array($keyframe) ? $keyframe : [];
-                $frame['image'] = Porcelain::inlineImageInput(is_array($keyframe) ? ($keyframe['image'] ?? null) : null, $signal);
-                $frames[] = $frame;
-            }
-            $out['keyframes'] = $frames;
-        }
-
-        return $out;
     }
 
     private static function toStart(mixed $payload, \TiborSrc\XaiSdkPhp\HttpMeta $http): Record

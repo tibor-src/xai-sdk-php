@@ -6,11 +6,15 @@ use TiborSrc\XaiSdkPhp\APIConnectionError;
 use TiborSrc\XaiSdkPhp\APIProtocolError;
 use TiborSrc\XaiSdkPhp\AuthenticationError;
 use TiborSrc\XaiSdkPhp\Http\Blob;
+use TiborSrc\XaiSdkPhp\Http\ChunkSource;
 use TiborSrc\XaiSdkPhp\Http\File;
 use TiborSrc\XaiSdkPhp\Http\FormData;
 use TiborSrc\XaiSdkPhp\Http\HeaderBag;
+use TiborSrc\XaiSdkPhp\IdleStream;
+use TiborSrc\XaiSdkPhp\ModelResponse;
 use TiborSrc\XaiSdkPhp\RateLimitError;
 use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\Sse;
 use TiborSrc\XaiSdkPhp\TimeoutError;
 use TiborSrc\XaiSdkPhp\Transport;
 
@@ -50,8 +54,8 @@ it('defaults store to false and streams a create that omits stream', function ()
     expect($captured->requests[0]->json()['include'])->toBe(['reasoning.encrypted_content']);
     expect($captured->requests[0]->json()['stream'])->toBeTrue();
     expect($captured->requests[0]->headers->get('accept'))->toBe('text/event-stream');
-    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.1 (php)');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.1');
+    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.3 (php)');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.3');
     expect($captured->requests[0]->headers->get('authorization'))->toBe('Bearer k');
 });
 
@@ -111,7 +115,7 @@ it('keeps a caller user agent and overwrites sdk attribution', function () {
     ]);
 
     expect($captured->requests[0]->headers->get('user-agent'))->toBe('curl/8');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.1');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.3');
     expect($captured->requests[0]->headers->get('xai-sdk-language'))->toBe('php/' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION);
 });
 
@@ -441,3 +445,408 @@ it('stops a video wait when the deadline passes', function () {
     expect(fn () => $client->videos->wait('req_1', ['interval' => 0, 'timeout' => 0]))
         ->toThrow(TimeoutError::class, 'Video request req_1 did not finish within 0ms');
 });
+
+it('sends service_tier fast and reads back the tier that served the request', function () {
+    [$client, $captured] = mockClient(fn () => jsonResponse(completedResponse(['service_tier' => 'fast'])));
+    $response = $client->responses->create([
+        'model' => 'grok-4.7',
+        'input' => 'hi',
+        'service_tier' => 'fast',
+        'stream' => false,
+    ]);
+
+    expect($captured->requests[0]->json()['service_tier'])->toBe('fast');
+    expect($response->service_tier)->toBe('fast');
+});
+
+it('accepts a json response when retryBeforeOutput retries create without stream', function () {
+    [$client, $captured] = mockClient(function ($request, int $n) {
+        if ($n === 1) {
+            return sseResponse([
+                ['type' => 'response.created', 'response' => ['id' => 'resp_1', 'status' => 'in_progress', 'output' => []]],
+            ], ['x-request-id' => 'req_1']);
+        }
+
+        return jsonResponse(completedResponse(), 200, ['x-request-id' => 'req_2']);
+    }, ['maxRetries' => 2, 'retryBeforeOutput' => true]);
+
+    $response = $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+    ]);
+
+    expect($response)->toBeInstanceOf(ModelResponse::class);
+    expect($response->toText())->toBe('Hello world');
+    expect($response->http->requestId)->toBe('req_2');
+    expect($captured->requests)->toHaveCount(2);
+    expect($captured->requests[1]->headers->get('accept'))->toBe('text/event-stream');
+});
+
+it('sends image upload urls and returns them as the image urls', function () {
+    $uploadUrl = 'https://storage.example.com/images/cat.jpg?X-Signature=abc123';
+    [$client, $captured] = mockClient(fn () => jsonResponse([
+        'data' => [['url' => $uploadUrl, 'mime_type' => 'image/jpeg']],
+        'usage' => ['cost_in_usd_ticks' => 200_000_000],
+    ]));
+    $params = [
+        'model' => 'grok-imagine-image-2.0',
+        'prompt' => 'A cat in a tree',
+        'response_format' => 'url',
+        'output' => ['upload_urls' => [$uploadUrl]],
+    ];
+    $result = $client->images->generate($params);
+
+    expect($captured->requests[0]->json())->toBe($params);
+    expect($result->data)->toBe([['url' => $uploadUrl, 'mime_type' => 'image/jpeg']]);
+    expect($result->usage->cost_usd)->toBe(0.02);
+});
+
+it('sends image edit upload urls alongside an inlined source image', function () {
+    $uploadUrl = 'https://storage.example.com/images/cat.jpg?X-Signature=abc123';
+    [$client, $captured] = mockClient(fn () => jsonResponse([
+        'data' => [['url' => $uploadUrl, 'mime_type' => 'image/jpeg']],
+    ]));
+    $result = $client->images->edit([
+        'model' => 'grok-imagine-image-2.0',
+        'prompt' => 'Add a hat',
+        'image' => new Blob('png', 'image/png'),
+        'output' => ['upload_urls' => [$uploadUrl]],
+    ]);
+
+    expect($captured->requests[0]->json())->toBe([
+        'model' => 'grok-imagine-image-2.0',
+        'prompt' => 'Add a hat',
+        'output' => ['upload_urls' => [$uploadUrl]],
+        'image' => ['url' => 'data:image/png;base64,' . base64_encode('png')],
+    ]);
+    expect($result->data[0]['url'])->toBe($uploadUrl);
+});
+
+it('inlines blobs anywhere in a video generation request', function () {
+    $png = "\x89PNG\r\n\x1a\n";
+    $wav = 'RIFF' . "\x24\x00\x00\x00" . 'WAVEfmt ';
+    $id3 = 'ID3' . "\x04\x00\x00\x00\x00\x00\x00";
+    $mpegFrame = "\xff\xfb\x90\x00";
+    $lastFrame = new Blob($png);
+    $narrator = new Blob('mp3-bytes', 'audio/mpeg');
+    [$client, $captured] = mockClient(fn () => jsonResponse(['request_id' => 'req_vid']));
+    $params = [
+        'model' => 'grok-imagine-video-1.5',
+        'prompt' => 'A lighthouse at dusk',
+        'image' => ['url' => 'https://example.com/first.png'],
+        'last_frame' => $lastFrame,
+        'reference_audios' => [
+            $narrator,
+            new Blob($wav),
+            new Blob($id3),
+            new Blob($mpegFrame),
+            new Blob('?'),
+            ['voice_id' => 'ara'],
+            ['url' => 'https://example.com/voice.wav'],
+        ],
+        'output' => ['upload_url' => 'https://example.com/upload'],
+    ];
+    $client->videos->generate($params);
+
+    expect($captured->requests[0]->json())->toBe([
+        'model' => 'grok-imagine-video-1.5',
+        'prompt' => 'A lighthouse at dusk',
+        'image' => ['url' => 'https://example.com/first.png'],
+        'last_frame' => ['url' => 'data:image/png;base64,' . base64_encode($png)],
+        'reference_audios' => [
+            ['url' => 'data:audio/mpeg;base64,' . base64_encode('mp3-bytes')],
+            ['url' => 'data:audio/wav;base64,' . base64_encode($wav)],
+            ['url' => 'data:audio/mpeg;base64,' . base64_encode($id3)],
+            ['url' => 'data:audio/mpeg;base64,' . base64_encode($mpegFrame)],
+            ['url' => 'data:application/octet-stream;base64,' . base64_encode('?')],
+            ['voice_id' => 'ara'],
+            ['url' => 'https://example.com/voice.wav'],
+        ],
+        'output' => ['upload_url' => 'https://example.com/upload'],
+    ]);
+    expect($params['last_frame'])->toBe($lastFrame);
+    expect($params['reference_audios'][0])->toBe($narrator);
+});
+
+it('keeps polling a batch that has no requests yet', function () {
+    [$client, $captured] = mockClient(function ($request, int $n) {
+        if ($n === 1) {
+            return jsonResponse(batchBody(0, 0));
+        }
+
+        return jsonResponse(batchBody(0, 2));
+    });
+    $batch = $client->batches->wait('batch_1', ['interval' => 0, 'timeout' => 5_000]);
+
+    expect($captured->requests)->toHaveCount(2);
+    expect($batch->state['num_requests'])->toBe(2);
+});
+
+it('returns a batch without requests once it is cancelled or expires', function () {
+    [$client, $captured] = mockClient(function ($request, int $n) {
+        if ($n === 1) {
+            return jsonResponse(batchBody(0, 0));
+        }
+
+        return jsonResponse(batchBody(0, 0, ['cancel_time' => '2025-11-11T12:00:04Z']));
+    });
+    $cancelled = $client->batches->wait('batch_1', ['interval' => 0, 'timeout' => 5_000]);
+
+    expect($captured->requests)->toHaveCount(2);
+    expect($cancelled->cancel_time)->toBe('2025-11-11T12:00:04Z');
+
+    [$xai, $xaiCaptured] = mockClient(fn () => jsonResponse(batchBody(0, 0, [
+        'cancel_by_xai_message' => 'Batch cancelled by SpaceXAI',
+    ])));
+    $byXai = $xai->batches->wait('batch_1', ['interval' => 0, 'timeout' => 5_000]);
+    expect($xaiCaptured->requests)->toHaveCount(1);
+    expect($byXai->cancel_by_xai_message)->toBe('Batch cancelled by SpaceXAI');
+
+    [$expiredClient, $expiredCaptured] = mockClient(fn () => jsonResponse(batchBody(0, 0, [
+        'expire_time' => '2000-01-01',
+    ])));
+    $expired = $expiredClient->batches->wait('batch_1', ['interval' => 0, 'timeout' => 5_000]);
+    expect($expiredCaptured->requests)->toHaveCount(1);
+    expect($expired->expire_time)->toBe('2000-01-01');
+});
+
+it('times out a batch that never gets requests and does not expire', function () {
+    [$client] = mockClient(fn () => jsonResponse(batchBody(0, 0, ['expire_time' => null])));
+
+    expect(fn () => $client->batches->wait('batch_1', ['interval' => 0, 'timeout' => 0]))
+        ->toThrow(TimeoutError::class, 'Batch batch_1 did not finish within 0ms');
+});
+
+it('names an unnamed audio blob after its format', function () {
+    $bytes = "\xff\xfb\x90\x00";
+    $wav = 'RIFF' . "\x24\x00\x00\x00" . 'WAVEfmt ';
+    [$client, $captured] = mockClient(fn () => jsonResponse(['text' => 'hello', 'voice_id' => 'voice_1']));
+    $files = [
+        new Blob($bytes, 'audio/mpeg'),
+        new Blob($bytes, 'audio/x-wav'),
+        new Blob($bytes, 'audio/ogg; codecs=opus'),
+        new Blob($bytes, 'video/x-matroska'),
+        new File($bytes, '', 'audio/flac'),
+        new File($bytes, 'call.mp3', 'audio/wav'),
+        new Blob($bytes, 'audio/webm'),
+        new Blob($bytes, 'video/webm'),
+        new Blob($bytes, 'audio/aiff'),
+    ];
+    foreach ($files as $file) {
+        $client->voice->transcribe(['file' => $file, 'diarize' => true]);
+    }
+    $client->voice->transcribe([
+        'file' => new Blob($bytes, 'audio/mpeg'),
+        'audio_format' => 'mp3',
+    ]);
+    $client->voice->custom->create([
+        'file' => new Blob($wav),
+        'name' => 'Friendly Narrator',
+    ]);
+
+    $names = array_map(
+        static fn ($request): string => formFilename($request->body),
+        $captured->requests,
+    );
+    expect($names)->toBe([
+        'audio.mp3',
+        'audio.wav',
+        'audio.ogg',
+        'audio.mkv',
+        'audio.flac',
+        'call.mp3',
+        'audio.webm',
+        'audio.webm',
+        'blob',
+        'blob',
+        'audio.wav',
+    ]);
+});
+
+it('names an unnamed blob without a mime type after the format its first bytes show', function () {
+    $wav = 'RIFF' . "\x24\x00\x00\x00" . 'WAVEfmt ';
+    $oggPage = 'OggS' . "\x00\x02" . str_repeat("\x00", 20);
+    [$client, $captured] = mockClient(fn () => jsonResponse(['text' => 'hello']));
+    $files = [
+        new Blob('ID3' . "\x04\x00\x00\x00\x00\x00\x00"),
+        new Blob("\xff\xfb\x90\x00"),
+        new Blob("\xff\xf1\x50\x80\x02\x1f\xfc"),
+        new Blob($wav . str_repeat("\x00", 100)),
+        new Blob('fLaC' . "\x00\x00\x00\x22"),
+        new Blob($oggPage . "\x01\x1e\x01" . 'vorbis'),
+        new Blob($oggPage . "\x01\x13" . 'OpusHead' . "\x01\x02"),
+        new Blob('OggS'),
+        new Blob("\x00\x00\x00\x20" . 'ftypM4A ' . "\x00\x00\x00\x00"),
+        new Blob("\x00\x00\x00\x20" . 'ftypM4B ' . "\x00\x00\x00\x00"),
+        new Blob("\x00\x00\x00\x18" . 'ftypisom' . "\x00\x00\x02\x00"),
+        new Blob("\x1a\x45\xdf\xa3" . 'matroska'),
+        new Blob("\x1a\x45\xdf\xa3" . 'webm'),
+        new File($wav, '', 'application/octet-stream'),
+        new Blob("\x1a\x45\xdf\xa3\x9f"),
+        new Blob("\xff\xfd\x90\x00"),
+        new Blob('Hello'),
+        new Blob("\xff"),
+        new Blob(''),
+        new File($wav, 'call.bin'),
+        new Blob($wav, 'audio/webm'),
+    ];
+    foreach ($files as $file) {
+        $client->voice->transcribe(['file' => $file, 'diarize' => true]);
+    }
+    $client->voice->transcribe(['file' => new Blob($wav), 'audio_format' => 'wav']);
+
+    $names = array_map(
+        static fn ($request): string => formFilename($request->body),
+        $captured->requests,
+    );
+    expect($names)->toBe([
+        'audio.mp3',
+        'audio.mp3',
+        'audio.aac',
+        'audio.wav',
+        'audio.flac',
+        'audio.ogg',
+        'audio.opus',
+        'audio.ogg',
+        'audio.m4a',
+        'audio.m4a',
+        'audio.mp4',
+        'audio.mkv',
+        'audio.webm',
+        'audio.wav',
+        'blob',
+        'blob',
+        'blob',
+        'blob',
+        'blob',
+        'call.bin',
+        'audio.webm',
+        'blob',
+    ]);
+});
+
+it('parses a stream event larger than 1 MiB', function () {
+    $event = [
+        'type' => 'response.output_item.done',
+        'item' => ['type' => 'reasoning', 'encrypted_content' => str_repeat('e', 1_500_000)],
+    ];
+    $raw = 'data: ' . json_encode($event, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n\n";
+    $chunks = [];
+    for ($offset = 0, $length = strlen($raw); $offset < $length; $offset += 16_384) {
+        $chunks[] = [substr($raw, $offset, 16_384), 0];
+    }
+    $body = new IdleStream(new ChunkSource($chunks), 0, null, null);
+    $events = [];
+    foreach (Sse::parse($body) as $parsed) {
+        $events[] = $parsed;
+    }
+
+    expect($events)->toBe([$event]);
+});
+
+it('finds a blank line split across chunks and honors maxEventChars', function () {
+    $raw = "data: {\"type\":\"ping\"}\r\n\r\ndata: {\"type\":\"response.completed\"}\n\n";
+    $pieces = ["data: {\"type\":\"ping\"}\r", "\n\r", "\ndata: {\"type\":\"response.completed\"}\n", "\n"];
+    $chunks = array_map(static fn (string $piece): array => [$piece, 0], $pieces);
+    $split = new IdleStream(new ChunkSource($chunks), 0, null, null);
+    $events = [];
+    foreach (Sse::parse($split) as $parsed) {
+        $events[] = $parsed;
+    }
+    expect($events)->toBe([['type' => 'ping'], ['type' => 'response.completed']]);
+
+    $over = new IdleStream(new ChunkSource([['data: ' . str_repeat('x', 32), 0]], ), 0, null, null);
+    expect(fn () => iterator_to_array(Sse::parse($over, null, 32)))
+        ->toThrow(RuntimeException::class, 'SSE event exceeds 32 characters');
+
+    $open = new IdleStream(new ChunkSource([
+        ['data: ', 0],
+        [str_repeat('x', 32), 0],
+    ]), 0, null, null);
+    expect(fn () => iterator_to_array(Sse::parse($open, null, 32)))
+        ->toThrow(RuntimeException::class, 'SSE event exceeds 32 characters');
+
+    $any = ['type' => 'ping', 'padding' => str_repeat('x', 64)];
+    $unlimited = new IdleStream(new ChunkSource([
+        ['data: ' . json_encode($any) . "\n\n", 0],
+    ]), 0, null, null);
+    expect(iterator_to_array(Sse::parse($unlimited, null, 0)))->toBe([$any]);
+});
+
+it('reads multi-agent encrypted reasoning larger than 1 MiB and limits each event', function () {
+    $reasoning = [
+        'type' => 'reasoning',
+        'id' => 'rs_agents',
+        'summary' => [],
+        'encrypted_content' => str_repeat('e', 2 * 1024 * 1024),
+        'status' => 'completed',
+    ];
+    $message = completedResponse()['output'][1];
+    $done = completedResponse([
+        'model' => 'grok-4.20-multi-agent',
+        'output' => [$reasoning, $message],
+    ]);
+    $events = [
+        ['type' => 'response.output_item.done', 'output_index' => 0, 'item' => $reasoning],
+        ['type' => 'response.completed', 'response' => $done],
+    ];
+    [$client, $captured] = mockClient(fn () => sseResponse($events));
+    $streamed = $client->responses->create([
+        'model' => 'grok-4.20-multi-agent',
+        'input' => 'Research this',
+        'stream' => true,
+    ])->done();
+    $created = $client->responses->create([
+        'model' => 'grok-4.20-multi-agent',
+        'input' => 'Research this',
+    ]);
+
+    expect($streamed->toInput()[0])->toBe($reasoning);
+    expect($created->toInput()[0])->toBe($reasoning);
+    expect($streamed->toText())->toBe('Hello world');
+    expect($created->toText())->toBe('Hello world');
+    expect($captured->requests[0]->json()['include'])->toBe(['reasoning.encrypted_content']);
+    expect($captured->requests[1]->json()['include'])->toBe(['reasoning.encrypted_content']);
+
+    [$limited] = mockClient(fn () => sseResponse($events), ['maxResponseBodyBytes' => 1_048_576]);
+    expect(fn () => $limited->responses->create([
+        'model' => 'grok-4.20-multi-agent',
+        'input' => 'Research this',
+    ]))->toThrow(APIConnectionError::class, 'SSE event exceeds 1048576 characters');
+    $stream = $limited->responses->create([
+        'model' => 'grok-4.20-multi-agent',
+        'input' => 'Research this',
+        'stream' => true,
+    ]);
+    expect(fn () => $stream->done())->toThrow(APIConnectionError::class, 'SSE event exceeds 1048576 characters');
+
+    $raised = $limited->responses->create([
+        'model' => 'grok-4.20-multi-agent',
+        'input' => 'Research this',
+    ], ['maxResponseBodyBytes' => 4 * 1_048_576]);
+    expect($raised->output)->toHaveCount(2);
+});
+
+it('lists the model ids added in 0.2.3', function () {
+    expect(\TiborSrc\XaiSdkPhp\KNOWN_MODEL_IDS)->toContain('grok-4.20-multi-agent');
+    expect(\TiborSrc\XaiSdkPhp\KNOWN_VIDEO_MODEL_IDS)->toContain('grok-imagine-video-1.5-lite');
+});
+
+/** @param array<string, mixed> $extra */
+function batchBody(int $pending, int $requests, array $extra = []): array
+{
+    return array_merge([
+        'batch_id' => 'batch_1',
+        'expire_time' => '2099-01-01',
+        'state' => ['num_pending' => $pending, 'num_requests' => $requests],
+    ], $extra);
+}
+
+function formFilename(mixed $body): string
+{
+    expect($body)->toBeInstanceOf(FormData::class);
+    expect($body->body())->toMatch('/filename="([^"]*)"/');
+    preg_match('/filename="([^"]*)"/', $body->body(), $match);
+
+    return $match[1];
+}

@@ -23,6 +23,7 @@ final class SpaceXAI
 
     public readonly int $idleTimeout;
 
+    /** Maximum size of a buffered JSON response, and of each event in a response stream. Defaults to 32 MiB. */
     public readonly int $maxResponseBodyBytes;
 
     public readonly int $maxRetries;

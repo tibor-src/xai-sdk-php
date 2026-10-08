@@ -60,6 +60,7 @@ final class Responses
                 'signal' => $signal instanceof AbortSignal ? $signal : null,
                 'json' => self::wantsJson($body),
                 'retry' => $budget instanceof RetryBudget ? $this->streamRetry($payload, $opts, $result->http, $budget) : null,
+                'maxEventChars' => $this->maxEventChars($opts),
             ]);
         }
 
@@ -153,7 +154,8 @@ final class Responses
                 'body' => $result->body,
                 'http' => $result->http,
                 'signal' => $signal instanceof AbortSignal ? $signal : null,
-                'retry' => $budget instanceof RetryBudget ? $this->streamRetry($payload, $streamOpts, $result->http, $budget) : null,
+                'retry' => $budget instanceof RetryBudget ? $this->streamRetry($payload, $streamOpts, $result->http, $budget, true) : null,
+                'maxEventChars' => $this->maxEventChars($opts),
             ]))->done();
         }
         if (($opts['http']['body'] ?? false) === true) {
@@ -161,6 +163,18 @@ final class Responses
         }
 
         return $response;
+    }
+
+    /**
+     * The terminal event holds the same response a JSON body would, so it gets the same size limit.
+     *
+     * @param array<string, mixed> $opts
+     */
+    private function maxEventChars(array $opts): int
+    {
+        $limit = $opts['maxResponseBodyBytes'] ?? $this->client->maxResponseBodyBytes;
+
+        return is_int($limit) ? $limit : $this->client->maxResponseBodyBytes;
     }
 
     /** @param array<string, mixed> $opts */
@@ -177,9 +191,9 @@ final class Responses
     /**
      * @param array<string, mixed> $payload
      * @param array<string, mixed> $opts
-     * @return array{budget: RetryBudget, resend: \Closure(): array{body: ?IdleStream, http: HttpMeta}}
+     * @return array{budget: RetryBudget, resend: \Closure(): array{body: ?IdleStream, http: HttpMeta, payload: mixed}}
      */
-    private function streamRetry(array $payload, array $opts, HttpMeta $http, RetryBudget $budget): array
+    private function streamRetry(array $payload, array $opts, HttpMeta $http, RetryBudget $budget, bool $acceptJson = false): array
     {
         $headers = isset($opts['headers']) && (is_array($opts['headers']) || $opts['headers'] instanceof HeaderBag)
             ? ($opts['headers'] instanceof HeaderBag ? $opts['headers']->clone() : HeaderBag::from($opts['headers']))
@@ -189,7 +203,7 @@ final class Responses
 
         return [
             'budget' => $budget,
-            'resend' => static function () use ($client, $payload, $opts, $headers, $budget): array {
+            'resend' => static function () use ($client, $payload, $opts, $headers, $budget, $acceptJson): array {
                 $next = $opts;
                 $next['headers'] = $headers;
                 $result = Transport::send($client, [
@@ -197,12 +211,13 @@ final class Responses
                     'path' => '/responses',
                     'body' => array_merge($payload, ['stream' => true]),
                     'stream' => true,
+                    'acceptJson' => $acceptJson,
                     'retryServerErrors' => true,
                     'retryBudget' => $budget,
                     'opts' => $next,
                 ]);
 
-                return ['body' => $result->body, 'http' => $result->http];
+                return ['body' => $result->body, 'http' => $result->http, 'payload' => $result->payload];
             },
         ];
     }

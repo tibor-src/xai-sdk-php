@@ -6,9 +6,12 @@ namespace TiborSrc\XaiSdkPhp\Resources;
 
 use TiborSrc\XaiSdkPhp\APIProtocolError;
 use TiborSrc\XaiSdkPhp\BinaryResponse;
+use TiborSrc\XaiSdkPhp\Http\AbortSignal;
 use TiborSrc\XaiSdkPhp\Http\Blob;
+use TiborSrc\XaiSdkPhp\Http\File;
 use TiborSrc\XaiSdkPhp\Http\FormData;
 use TiborSrc\XaiSdkPhp\Page;
+use TiborSrc\XaiSdkPhp\Porcelain;
 use TiborSrc\XaiSdkPhp\Record;
 use TiborSrc\XaiSdkPhp\SpaceXAI;
 use TiborSrc\XaiSdkPhp\Transport;
@@ -17,6 +20,18 @@ use function TiborSrc\XaiSdkPhp\requestIds;
 
 final class VoiceResource
 {
+    /** @var list<string> */
+    private const AUDIO_FORMATS = [
+        'pcm', 'mulaw', 'alaw', 'wav', 'mp3', 'ogg', 'opus', 'flac', 'aac', 'mp4', 'm4a', 'mkv', 'webm',
+    ];
+
+    /** MIME subtypes, without an `x-` prefix, whose format has another name. */
+    private const SUBTYPE_FORMATS = [
+        'mpeg' => 'mp3',
+        'wave' => 'wav',
+        'matroska' => 'mkv',
+    ];
+
     public readonly CustomVoices $custom;
 
     public readonly ClientSecrets $clientSecrets;
@@ -59,10 +74,11 @@ final class VoiceResource
      */
     public function transcribe(array $body, array $opts = []): Record
     {
+        $signal = $opts['signal'] ?? null;
         $result = Transport::send($this->client, [
             'method' => 'POST',
             'path' => '/stt',
-            'body' => self::toFormData($body),
+            'body' => self::toFormData($body, $signal instanceof AbortSignal ? $signal : null),
             'opts' => $opts,
         ]);
         $transcription = Wire::requireRecord($result->payload, $result->http, 'Transcription');
@@ -115,7 +131,7 @@ final class VoiceResource
     }
 
     /** @param array<string, mixed> $body */
-    public static function toFormData(array $body): FormData
+    public static function toFormData(array $body, ?AbortSignal $signal = null): FormData
     {
         $form = new FormData();
         $file = $body['file'] ?? null;
@@ -129,10 +145,38 @@ final class VoiceResource
             }
         }
         if ($file instanceof Blob) {
-            $form->append('file', $file);
+            $filename = self::audioFileName($file, array_key_exists('audio_format', $body), $signal);
+            if ($filename === null) {
+                $form->append('file', $file);
+            } else {
+                $form->append('file', $file, $filename);
+            }
         }
 
         return $form;
+    }
+
+    /**
+     * The API can read the audio format from the file name, which FormData sets to `blob` for a Blob
+     * without one. For such a Blob, returns a name such as `audio.mp3` from its MIME type, or from its
+     * first bytes if it has none, unless `audio_format` is set.
+     */
+    private static function audioFileName(Blob $file, bool $audioFormatSet, ?AbortSignal $signal): ?string
+    {
+        if ($audioFormatSet || ($file instanceof File && $file->name !== '')) {
+            return null;
+        }
+        $essence = strtolower(trim(explode(';', $file->type, 2)[0]));
+        if ($essence === '' || $essence === 'application/octet-stream') {
+            $sniffed = Porcelain::readAudioFormat($file, $signal);
+
+            return $sniffed === null ? null : 'audio.' . $sniffed;
+        }
+        $subtype = explode('/', $essence, 2)[1] ?? '';
+        $subtype = preg_replace('/^x-/', '', $subtype) ?? $subtype;
+        $format = self::SUBTYPE_FORMATS[$subtype] ?? $subtype;
+
+        return in_array($format, self::AUDIO_FORMATS, true) ? 'audio.' . $format : null;
     }
 
     public static function jsString(mixed $value): string
@@ -163,10 +207,11 @@ final class CustomVoices
      */
     public function create(array $body, array $opts = []): Record
     {
+        $signal = $opts['signal'] ?? null;
         $result = Transport::send($this->client, [
             'method' => 'POST',
             'path' => '/custom-voices',
-            'body' => VoiceResource::toFormData($body),
+            'body' => VoiceResource::toFormData($body, $signal instanceof AbortSignal ? $signal : null),
             'opts' => $opts,
         ]);
 

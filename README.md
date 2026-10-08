@@ -1,12 +1,12 @@
 # tibor-src/xai-sdk-php
 
-Unofficial PHP port of the experimental [SpaceXAI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.1).
+Unofficial PHP port of the experimental [SpaceXAI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.3).
 
 This package is not published or maintained by xAI. It follows the TypeScript client's resources, request defaults, and error types. This guide follows the [TypeScript SDK README](https://github.com/xai-org/xai-sdk-ts/blob/main/README.md), with the examples written for PHP. Method calls return their results directly.
 
 Use Grok from PHP with a client built on the SpaceXAI REST API. The SDK has no runtime dependencies beyond PHP's curl, json, and mbstring extensions. It includes streaming, structured output, function tools, image input, image and video generation, file uploads, batch processing, text to speech and transcription, multi-turn conversations, and access to usage and HTTP metadata.
 
-> **Experimental.** The TypeScript SDK this port follows is in early development. It covers the Responses API, image and video generation, the Files, Batch, and Voice APIs, tokenization, and model and account lookup. Its interfaces may change between releases before 1.0. Pin an exact version when upgrading. Report issues with this port in [this repository](https://github.com/tibor-src/xai-sdk-php/issues).
+> **Experimental.** The TypeScript SDK this port follows is in early development. It covers the Responses API, image and video generation, the Files, Batch, and Voice APIs, tokenization, and model and account lookup. Its interfaces may change between releases before 1.0. Pin an exact version and read the [changelog](./CHANGELOG.md) when upgrading. Report issues with this port in [this repository](https://github.com/tibor-src/xai-sdk-php/issues).
 
 ## Requirements
 
@@ -785,6 +785,28 @@ $result = $client->images->generate(
 
 Each result provides `data`, `usage`, and `http`. `usage->cost_usd` converts the reported `cost_in_usd_ticks` to US dollars, and `usage` is `null` when the API omits it.
 
+To store images in your own bucket instead of with SpaceXAI, pass `output.upload_urls`: signed URLs that accept an HTTP `PUT`, one per image. Each image is uploaded to its URL, and its `url` in the result is that upload URL. Uploads need the default `response_format` of `url`:
+
+```php
+$result = $client->images->generate([
+    'model' => 'grok-imagine-image-2.0',
+    'prompt' => 'A lighthouse at dawn',
+    'n' => 2,
+    'output' => [
+        'upload_urls' => [
+            'https://storage.example.com/lighthouse-1.jpg?signature=...',
+            'https://storage.example.com/lighthouse-2.jpg?signature=...',
+        ],
+    ],
+]);
+
+foreach ($result->data as $image) {
+    echo $image['url'] ?? '', "\n";
+}
+```
+
+Each upload's `Content-Type` is the image's `mime_type`, which is `image/jpeg` unless the requested quality produces PNG, so sign the URLs for that type or without a `Content-Type` constraint.
+
 ## Image editing
 
 Pass a source image with your prompt to edit it. `image` accepts a public URL, a base64 data URL, a Files API `file_id`, or a `Blob` or `File`, which the SDK converts to a data URL before sending the request:
@@ -802,6 +824,8 @@ $result = $client->images->edit([
 
 echo $result->data[0]['url'] ?? '';
 ```
+
+Edits also accept `output.upload_urls`, as described in [Image generation](#image-generation).
 
 When a `Blob` or `File` has an empty MIME type, the SDK detects JPEG, PNG, or WebP from its first bytes. The API rejects image data URLs that are not typed as one of those formats.
 
@@ -845,7 +869,7 @@ if ($result->status === 'done') {
 
 `wait()` polls every 5 seconds for up to 10 minutes. Pass `interval` and `timeout` in milliseconds to change this, and a `signal` to stop waiting. A timeout throws `TimeoutError`, so you can call `wait()` again. A timeout or an aborted signal leaves the job running: the video keeps generating and is billed when it finishes. The API has no way to cancel a video in this SDK version. To check once, call `$client->videos->get($requestId)`, which returns `status` `pending` until the video is ready.
 
-To animate a still image, pass it as `image`. `image`, `reference_images`, and keyframe images accept a public URL, a base64 data URL, a Files API `file_id`, or a `Blob` or `File`, which the SDK converts to a data URL before sending the request:
+To animate a still image, pass it as `image`, and pass `last_frame` to choose the frame the video ends on. `image`, `last_frame`, `reference_images`, and keyframe images accept a public URL, a base64 data URL, a Files API `file_id`, or a `Blob` or `File`, which the SDK converts to a data URL before sending the request:
 
 ```php
 use TiborSrc\XaiSdkPhp\Http\Blob;
@@ -856,6 +880,8 @@ $started = $client->videos->generate([
     'image' => new Blob(file_get_contents('./waterfall.png'), 'image/png'),
 ]);
 ```
+
+Models that support reference-to-video generation also take up to three `reference_audios`. Each is a preset voice such as `['voice_id' => 'ara']`, or a clip of up to 15 seconds as `['url' => ...]` or a `Blob` or `File`. The SDK detects WAV or MP3 in a `Blob` or `File` without a MIME type. `KNOWN_VIDEO_MODEL_IDS` includes `grok-imagine-video-1.5-lite`.
 
 Edit a video with `edit()`, or continue it from its last frame with `extend()`. Both return a `request_id` for `wait()`. The source `video` must be an MP4, given as a public URL, a base64 data URL, a Files API `file_id`, or a `Blob` or `File`, which the SDK converts to a data URL before sending the request. For extensions, `duration` sets the length of the new segment only:
 
@@ -963,7 +989,7 @@ $client->batches->requests->add($batch->batch_id, [
 
 Each `batch_request` holds one request. `responses` takes the same body as `$client->responses->create()`, including the `store` default of `false`, and its result comes back as a `chat_get_completion` response. `image_generation`, `image_edit`, `video_generation`, and `video_extension` take the request body of the matching REST endpoint. Results can come back in any order, so give each request a `batch_request_id` that is unique within the batch. Each [model page](https://docs.x.ai/developers/models) lists its Batch API support.
 
-Wait until no requests are pending, then read the results:
+Wait until every request has finished, then read the results:
 
 ```php
 $client->batches->wait($batch->batch_id);
@@ -978,7 +1004,7 @@ foreach ($client->batches->results($batch->batch_id) as $row) {
 }
 ```
 
-`wait()` polls every 5 seconds and throws `TimeoutError` after 24 hours. Pass `interval`, `timeout`, or `signal` to change that. Results are available as soon as each request finishes, so you can read them before the whole batch completes. Use `$client->batches->requests->list()` to check the state of individual requests, `$client->batches->list()` to list your team's batches, and `$client->batches->cancel()` to stop the remaining requests. Finished results stay available after cancelling.
+`wait()` polls every 5 seconds and throws `TimeoutError` after 24 hours. Pass `interval`, `timeout`, or `signal` to change that. A batch created from `input_file_id` has no requests until it has loaded the file, so `wait()` keeps polling a batch without requests until requests arrive, or until the batch is cancelled or expires. Results are available as soon as each request finishes, so you can read them before the whole batch completes. Use `$client->batches->requests->list()` to check the state of individual requests, `$client->batches->list()` to list your team's batches, and `$client->batches->cancel()` to stop the remaining requests. Finished results stay available after cancelling.
 
 ## Voice
 
@@ -994,7 +1020,7 @@ $speech = $client->voice->speak([
 file_put_contents('welcome.mp3', $speech->bytes());
 ```
 
-Shape the delivery with [speech tags](https://docs.x.ai/developers/model-capabilities/audio/text-to-speech#speech-tags) in the text. Inline tags such as `[pause]`, `[long-pause]`, and `[laugh]` go where the sound should happen, and wrapping tags such as `<whisper>It's a secret.</whisper>` change how the enclosed text is spoken. The API does not report mistakes in tags. `checkSpeechText()` reports unknown tags, suggests the closest known tag, and reports wrapping tags that are never closed, closed without being opened, or closed in the wrong order. `stripInvalidSpeechTags()` removes any tag the API would not recognize and keeps the words it wraps.
+Shape the delivery with [speech tags](https://docs.x.ai/developers/model-capabilities/audio/text-to-speech#speech-tags) in the text. Inline tags such as `[pause]`, `[long-pause]`, and `[laugh]` go where the sound should happen, and wrapping tags such as `<whisper>It's a secret.</whisper>` change how the enclosed text is spoken. The API does not report mistakes in tags. `checkSpeechText()` reports unknown tags, suggests the closest known tag, and reports wrapping tags that are never closed, closed without being opened, or closed in the wrong order. Bracketed text counts as a tag when it is a known tag, has a hyphen, or resembles a known tag, so text such as `[they]` in a quote is read aloud and is not flagged. `stripInvalidSpeechTags()` removes any tag the API would not recognize, and markup such as `<citation id="web:23"/>`, and keeps the words they wrap.
 
 Text you do not write yourself, such as a script the model wrote or text your users submit, can contain a made-up tag such as `[laff]`, and the API reads it aloud. Put the real tags in the prompt with `INLINE_SPEECH_TAGS` and `WRAPPING_SPEECH_TAGS`, then call `stripInvalidSpeechTags()` before speaking. `checkSpeechText()` returns the problems for logging, for showing to a user, or for asking the model to fix its text:
 
@@ -1037,6 +1063,8 @@ echo $transcript->text;
 
 `format` set to `true` writes spoken numbers, currencies, and units in written form, and requires `language`. Word-level timings are in `$transcript->words`.
 
+With `diarize` set to `true`, each word also has a `speaker`, and the API takes the audio format from the file name. A `File` sends its own name. The SDK names a `Blob` after its MIME type, such as `audio.mp3` for `audio/mpeg`, and a `Blob` without one after the format its first bytes show: MP3, AAC, WAV, FLAC, Ogg, Opus, M4A, MP4, Matroska, or WebM. For a file in another format, give the `Blob` a `type` when you create it. `voice->custom->create()` names its upload the same way. `voice->list()` and `voice->get()` include `gender` when the API sends it.
+
 Clone a voice from a reference clip of up to 120 seconds with `$client->voice->custom->create()`. Creating custom voices through the API requires an Enterprise plan:
 
 ```php
@@ -1061,7 +1089,7 @@ $secret = $client->voice->clientSecrets->create([
 ]);
 ```
 
-Send `$secret->value` to the browser, which passes `xai-client-secret.<value>` as the WebSocket subprotocol when it connects to `wss://api.x.ai/v1/realtime`. Secrets expire after 10 minutes by default, and `expires_after.seconds` can be at most 3600.
+Send `$secret->value` to the browser, which passes `xai-client-secret.<value>` as the WebSocket subprotocol when it connects to `wss://api.x.ai/v1/realtime`. Secrets expire after 10 minutes by default, and `expires_after.seconds` can be at most 3600. Pass `session` to set the session's `model`, `instructions`, `turn_detection`, and `reasoning` when the connection opens.
 
 ## Tokenization
 
@@ -1150,6 +1178,8 @@ echo $apiKeyInfo->name, ' ', json_encode($apiKeyInfo->acls), ' ', json_encode($a
 
 The SDK sends `store` as `false` unless you opt in. This differs from the API wire default. With storage disabled, the SDK requests encrypted reasoning content so `$response->toInput()` can preserve context between turns.
 
+Encrypted reasoning can be large: `grok-4.20-multi-agent` sends the state of all its agents in one stream event. Each stream event, like a JSON response, can be up to `maxResponseBodyBytes`, which defaults to 32 MiB. `KNOWN_MODEL_IDS` includes `grok-4.20-multi-agent`.
+
 Pass `store` as `true` when you need to retrieve, continue, inspect, or delete a response by ID:
 
 ```php
@@ -1163,6 +1193,22 @@ $fetched = $client->responses->get($stored->id);
 $inputItems = $client->responses->inputItems->list($stored->id);
 $client->responses->delete($stored->id);
 ```
+
+## Priority processing
+
+Set `service_tier` to `priority` or `fast` for faster responses at a higher price. The two values are interchangeable: on a model with a fast deployment, both use that deployment and its rates. Otherwise, both schedule the request ahead of standard traffic, which typically lowers latency when demand is high. `$response->service_tier` reports the tier that served the request:
+
+```php
+$response = $client->responses->create([
+    'model' => 'grok-4.7',
+    'input' => 'Explain the Riemann hypothesis in one paragraph.',
+    'service_tier' => 'fast',
+]);
+
+echo $response->service_tier;
+```
+
+See [Priority Processing](https://docs.x.ai/developers/advanced-api-usage/priority-processing) for rates.
 
 ## Pagination
 

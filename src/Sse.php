@@ -8,13 +8,20 @@ use TiborSrc\XaiSdkPhp\Http\AbortSignal;
 
 final class Sse
 {
-    public const MAX_EVENT_CHARS = 1_048_576;
-
     private const DONE = '[DONE]';
 
-    public static function parse(IdleStream $body, ?AbortSignal $close = null): \Generator
+    /** A blank line ends an event, so a delimiter is at most four characters, as in `\r\n\r\n`. */
+    private const EVENT_DELIMITER = '/(?:\r\n|\r|\n)(?:\r\n|\r|\n)/';
+
+    /**
+     * @param int|null $maxEventChars Longest event in characters. Null uses the 32 MiB JSON body limit. 0 turns the limit off.
+     */
+    public static function parse(IdleStream $body, ?AbortSignal $close = null, ?int $maxEventChars = null): \Generator
     {
+        $maxChars = $maxEventChars ?? Transport::DEFAULT_MAX_RESPONSE_BODY_BYTES;
         $buf = '';
+        // The last characters of $buf, where a delimiter that the next chunk completes would start.
+        $bufEnd = '';
         try {
             while (true) {
                 if ($close?->isAborted()) {
@@ -24,7 +31,8 @@ final class Sse
                 }
                 $chunk = $body->read();
                 if ($chunk === null) {
-                    $flushed = self::flush($buf);
+                    $flushed = self::flush($buf, $maxChars);
+                    self::assertEventSize($flushed['rest'], $maxChars);
                     foreach ($flushed['items'] as $item) {
                         if ($item === self::DONE) {
                             return;
@@ -43,14 +51,19 @@ final class Sse
 
                     return;
                 }
-                if ($chunk !== '') {
-                    $buf .= $chunk;
+                // Splitting the whole buffer for every chunk would make reading a long event quadratic.
+                $recent = $bufEnd . $chunk;
+                $buf .= $chunk;
+                $bufEnd = self::tail($recent, 3);
+                if (preg_match(self::EVENT_DELIMITER, $recent) !== 1) {
+                    self::assertEventSize($buf, $maxChars);
+
+                    continue;
                 }
-                $flushed = self::flush($buf);
+                $flushed = self::flush($buf, $maxChars);
                 $buf = $flushed['rest'];
-                if (mb_strlen($buf) > self::MAX_EVENT_CHARS) {
-                    throw new \RuntimeException('SSE event exceeds ' . self::MAX_EVENT_CHARS . ' characters');
-                }
+                $bufEnd = self::tail($buf, 3);
+                self::assertEventSize($buf, $maxChars);
                 foreach ($flushed['items'] as $item) {
                     if ($item === self::DONE) {
                         return;
@@ -63,22 +76,33 @@ final class Sse
         }
     }
 
-    /** @return array{items: list<mixed>, rest: string} */
-    private static function flush(string $buf): array
+    private static function assertEventSize(string $text, int $maxChars): void
     {
-        $parts = preg_split('/(?:\r\n|\r|\n)(?:\r\n|\r|\n)/', $buf);
+        if ($maxChars > 0 && strlen($text) > $maxChars) {
+            throw new \RuntimeException('SSE event exceeds ' . $maxChars . ' characters');
+        }
+    }
+
+    private static function tail(string $text, int $length): string
+    {
+        if (strlen($text) <= $length) {
+            return $text;
+        }
+
+        return substr($text, -$length);
+    }
+
+    /** @return array{items: list<mixed>, rest: string} */
+    private static function flush(string $buf, int $maxChars): array
+    {
+        $parts = preg_split(self::EVENT_DELIMITER, $buf);
         if ($parts === false) {
             $parts = [$buf];
         }
         $rest = array_pop($parts) ?? '';
-        if (mb_strlen($rest) > self::MAX_EVENT_CHARS) {
-            throw new \RuntimeException('SSE event exceeds ' . self::MAX_EVENT_CHARS . ' characters');
-        }
         $items = [];
         foreach ($parts as $block) {
-            if (mb_strlen($block) > self::MAX_EVENT_CHARS) {
-                throw new \RuntimeException('SSE event exceeds ' . self::MAX_EVENT_CHARS . ' characters');
-            }
+            self::assertEventSize($block, $maxChars);
             $parsed = self::block($block);
             if ($parsed !== null) {
                 $items[] = $parsed;

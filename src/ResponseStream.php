@@ -41,8 +41,10 @@ final class ResponseStream implements \IteratorAggregate
 
     private ?AbortSignal $signal;
 
-    /** @var array{budget: RetryBudget, resend: \Closure(): array{body: ?IdleStream, http: HttpMeta}}|null */
+    /** @var array{budget: RetryBudget, resend: \Closure(): array{body: ?IdleStream, http: HttpMeta, payload: mixed}}|null */
     private ?array $retry;
+
+    private int $maxEventChars;
 
     private ?string $jsonText;
 
@@ -64,7 +66,8 @@ final class ResponseStream implements \IteratorAggregate
      *   http: HttpMeta,
      *   signal?: ?AbortSignal,
      *   json?: bool,
-     *   retry?: array{budget: RetryBudget, resend: \Closure(): array{body: ?IdleStream, http: HttpMeta}}|null
+     *   retry?: array{budget: RetryBudget, resend: \Closure(): array{body: ?IdleStream, http: HttpMeta, payload: mixed}}|null,
+     *   maxEventChars?: int
      * } $init
      */
     public function __construct(array $init)
@@ -74,6 +77,7 @@ final class ResponseStream implements \IteratorAggregate
         $this->requestId = $init['http']->requestId;
         $this->signal = $init['signal'] ?? null;
         $this->retry = $init['retry'] ?? null;
+        $this->maxEventChars = $init['maxEventChars'] ?? Transport::DEFAULT_MAX_RESPONSE_BODY_BYTES;
         $this->jsonText = ($init['json'] ?? false) ? '' : null;
         $this->closeController = new AbortController();
     }
@@ -248,6 +252,9 @@ final class ResponseStream implements \IteratorAggregate
                 $this->body = $next['body'];
                 $this->http = $next['http'];
                 $this->requestId = $next['http']->requestId;
+                if (! $next['body'] instanceof IdleStream) {
+                    $this->final = $this->terminal($next['payload'] ?? null);
+                }
             }
             if (! $this->closed && $this->final === null && $this->error === null) {
                 throw new APIProtocolError('Stream ended without a terminal response event', [
@@ -279,7 +286,7 @@ final class ResponseStream implements \IteratorAggregate
         $held = [];
         $holding = $canRetry;
         try {
-            foreach (Sse::parse($body, $this->closeController->signal) as $raw) {
+            foreach (Sse::parse($body, $this->closeController->signal, $this->maxEventChars) as $raw) {
                 $event = $this->normalize($raw);
                 if ($holding) {
                     if (self::isLifecycle($event)) {

@@ -27,6 +27,10 @@ final class SpeechTags
         }
         $open = [];
         foreach (self::wrappingTags($text) as $tag) {
+            if ($tag->kind === 'markup') {
+                $problems[] = $tag->name . ' is not a speech tag.';
+                continue;
+            }
             if ($tag->kind === 'open') {
                 $open[] = $tag->name;
                 if (! in_array($tag->name, WRAPPING_SPEECH_TAGS, true)) {
@@ -91,6 +95,8 @@ final class SpeechTags
                 if (! in_array($tag->name, INLINE_SPEECH_TAGS, true)) {
                     $drop->offsetSet($tag);
                 }
+            } elseif ($tag->kind === 'markup') {
+                $drop->offsetSet($tag);
             } elseif ($tag->kind === 'open') {
                 $open[] = $tag;
             } else {
@@ -120,7 +126,8 @@ final class SpeechTags
         $out = '';
         $last = 0;
         foreach ($tags as $tag) {
-            if (! $drop->offsetExists($tag)) {
+            // A bracketed tag can sit inside markup, such as in an attribute, and goes with it.
+            if (! $drop->offsetExists($tag) || $tag->start < $last) {
                 continue;
             }
             $out .= substr($text, $last, $tag->start - $last);
@@ -137,7 +144,7 @@ final class SpeechTags
         if (preg_match_all('/\[([^\[\]]*)\]/', $text, $matches, PREG_OFFSET_CAPTURE) !== false) {
             foreach ($matches[0] as $index => $full) {
                 $name = $matches[1][$index][0];
-                if (preg_match('/^[a-z]+(?:-[a-z]+)*$/', $name) === 1) {
+                if (self::isInlineTag($name)) {
                     $tags[] = new SpeechTag('inline', $name, $full[1], $full[1] + strlen($full[0]));
                 }
             }
@@ -153,14 +160,42 @@ final class SpeechTags
         if (preg_match_all('/<(\/?)([^<>]*)>/', $text, $matches, PREG_OFFSET_CAPTURE) !== false) {
             foreach ($matches[0] as $index => $full) {
                 $name = $matches[2][$index][0];
+                $start = $full[1];
+                $end = $full[1] + strlen($full[0]);
                 if (preg_match('/^[a-z]+(?:-[a-z]+)*$/', $name) === 1) {
                     $kind = $matches[1][$index][0] !== '' ? 'close' : 'open';
-                    $tags[] = new SpeechTag($kind, $name, $full[1], $full[1] + strlen($full[0]));
+                    $tags[] = new SpeechTag($kind, $name, $start, $end);
+                } elseif (preg_match('/^<\/?[A-Za-z][\w.:-]*(?:[\t\n\r ][^<>]*|\/)?>$/', $full[0]) === 1) {
+                    $tags[] = new SpeechTag('markup', $full[0], $start, $end);
                 }
             }
         }
 
         return $tags;
+    }
+
+    /**
+     * Bracketed text is a tag when it is a known tag, has a hyphen like `long-pause`, or resembles a known
+     * inline tag, like `[laff]` or `[laughs]`. Other bracketed text, such as `[they]` or `[Enter]`, is read aloud.
+     */
+    private static function isInlineTag(string $name): bool
+    {
+        if (preg_match('/^[a-z]+(?:-[a-z]+)*$/', $name) !== 1) {
+            return false;
+        }
+        if (in_array($name, INLINE_SPEECH_TAGS, true) || in_array($name, WRAPPING_SPEECH_TAGS, true) || str_contains($name, '-')) {
+            return true;
+        }
+        foreach (INLINE_SPEECH_TAGS as $tag) {
+            if (str_starts_with($name, $tag)) {
+                return true;
+            }
+            if (strlen($name) >= 4 && substr($name, 0, 2) === substr($tag, 0, 2) && abs(strlen($name) - strlen($tag)) <= 2) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param list<string> $tags */

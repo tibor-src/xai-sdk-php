@@ -42,12 +42,20 @@ it('returns null for text that cannot become json', function () {
 
 it('reports the same speech tag problems as the typescript checker', function () {
     $cases = [
-        ['Hi [luff] there.', ['Unknown speech tag [luff], did you mean [laugh]?']],
+        ['Hi [laff] there.', ['Unknown speech tag [laff], did you mean [laugh]?']],
         [
-            'Hi [luff] there. <wisper>Quiet.</wisper>',
-            ['Unknown speech tag [luff], did you mean [laugh]?', 'Unknown speech tag <wisper>, did you mean <whisper>?'],
+            'Hi [laff] there. <wisper>Quiet.</wisper>',
+            ['Unknown speech tag [laff], did you mean [laugh]?', 'Unknown speech tag <wisper>, did you mean <whisper>?'],
         ],
-        ['Then the [music] started.', ['Unknown speech tag [music].']],
+        ['Then a [door-creak] sounded.', ['Unknown speech tag [door-creak].']],
+        [
+            'Ha [laughs], [sighing], [long-paws].',
+            [
+                'Unknown speech tag [laughs], did you mean [laugh]?',
+                'Unknown speech tag [sighing], did you mean [sigh]?',
+                'Unknown speech tag [long-paws], did you mean [long-pause]?',
+            ],
+        ],
         ['<lower>Listen.</lower>', ['Unknown speech tag <lower>, did you mean <lower-pitch>?']],
         ['Wait [whisper] now.', ['[whisper] is a wrapping tag, use <whisper>…</whisper>.']],
         ['Wait <pause> now.', ['<pause> is an inline tag, use [pause].']],
@@ -55,6 +63,14 @@ it('reports the same speech tag problems as the typescript checker', function ()
         ['It is a secret.</whisper>', ['</whisper> has no opening tag.']],
         ['It is a secret.</wisper>', ['Unknown speech tag </wisper>, did you mean </whisper>?']],
         ['<slow><soft>Goodnight.</slow></soft>', ['Close <soft> before </slow>.']],
+        [
+            'Grok said so.<citation id="web:23"/> <b>Bold</b> </grok:render>',
+            ['<citation id="web:23"/> is not a speech tag.', 'Unknown speech tag <b>.', '</grok:render> is not a speech tag.'],
+        ],
+        [
+            '<whisper volume="low">Quiet.</whisper> <pause/>',
+            ['<whisper volume="low"> is not a speech tag.', '</whisper> has no opening tag.', '<pause/> is not a speech tag.'],
+        ],
         ['<slow><soft>Goodnight.</soft></slow> [pause] Press [Enter] [1] [citation needed].', []],
     ];
 
@@ -73,10 +89,35 @@ it('strips invalid speech tags and keeps the words they wrap', function () {
         ['<slow><soft>Goodnight.</slow></soft>', '<soft>Goodnight.</soft>'],
         ['<slow><soft>Goodnight.</soft></slow> [pause] Press [Enter].', '<slow><soft>Goodnight.</soft></slow> [pause] Press [Enter].'],
         ['[[laff]laff] then [[laff]pause]', ' then [pause]'],
+        ['They said [they] would come [laughs].', 'They said [they] would come .'],
+        [
+            'Grok said so.<citation id="web:23"/> <whisper>Quiet <b>now</b>.</whisper>',
+            'Grok said so. <whisper>Quiet now.</whisper>',
+        ],
+        ['<whisper volume="low">Quiet.</whisper> <pause/> <grok:render type="x">23</grok:render>', 'Quiet.  23'],
+        ['<a title="[laff]">Link</a>', 'Link'],
     ];
 
     foreach ($cases as [$text, $stripped]) {
         expect(stripInvalidSpeechTags($text))->toBe($stripped);
         expect(checkSpeechText(stripInvalidSpeechTags($text)))->toBe([]);
     }
+});
+
+it('reads bracketed words that do not resemble a known tag as text', function () {
+    foreach ([
+        'They said [they] would bring [them] to [the] show.',
+        'He said it was fine [sic].',
+        'Then the [music] started.',
+    ] as $text) {
+        expect(checkSpeechText($text))->toBe([]);
+        expect(stripInvalidSpeechTags($text))->toBe($text);
+    }
+});
+
+it('leaves text that only looks like markup', function () {
+    $text = 'Visit <https://x.ai> or write to <support@x.ai>. If a < b and c > d, then <3.';
+
+    expect(checkSpeechText($text))->toBe([]);
+    expect(stripInvalidSpeechTags($text))->toBe($text);
 });

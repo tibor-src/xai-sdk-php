@@ -92,7 +92,13 @@ final class Batches
         );
     }
 
-    /** @param array<string, mixed> $opts */
+    /**
+     * Poll `get()` until the batch has requests and none are pending.
+     * A batch created from `input_file_id` has no requests until it loads the file, so a batch
+     * without requests counts as finished only once it is cancelled or expires.
+     *
+     * @param array<string, mixed> $opts
+     */
     public function wait(string $batchId, array $opts = []): Record
     {
         $interval = is_int($opts['interval'] ?? null) ? $opts['interval'] : self::DEFAULT_WAIT_INTERVAL_MS;
@@ -104,13 +110,44 @@ final class Batches
         $signal = AbortSignal::any([$user instanceof AbortSignal ? $user : null, $deadline]);
         while (true) {
             $batch = $this->get($batchId, ['signal' => $signal]);
-            $state = $batch['state'] ?? null;
-            $pending = is_array($state) ? ($state['num_pending'] ?? null) : null;
-            if ($pending === 0) {
+            if (self::isFinished($batch)) {
                 return $batch;
             }
             Transport::sleepMs($interval, $signal);
         }
+    }
+
+    private static function isFinished(Record $batch): bool
+    {
+        $state = $batch['state'] ?? null;
+        if (! is_array($state)) {
+            return false;
+        }
+        if (($state['num_pending'] ?? null) !== 0) {
+            return false;
+        }
+        $requests = $state['num_requests'] ?? null;
+
+        return (is_int($requests) && $requests > 0) || self::hasEnded($batch);
+    }
+
+    /** Cancelled, by you or by SpaceXAI, or past its expiry time. */
+    private static function hasEnded(Record $batch): bool
+    {
+        if (($batch['cancel_time'] ?? null) !== null || ($batch['cancel_by_xai_message'] ?? null) !== null) {
+            return true;
+        }
+        $expire = $batch['expire_time'] ?? null;
+        if (! is_string($expire) || $expire === '') {
+            return false;
+        }
+        try {
+            $time = new \DateTimeImmutable($expire, new \DateTimeZone('UTC'));
+        } catch (\Exception) {
+            return false;
+        }
+
+        return $time->getTimestamp() <= time();
     }
 
     private static function toBatch(mixed $payload, \TiborSrc\XaiSdkPhp\HttpMeta $http): Record
