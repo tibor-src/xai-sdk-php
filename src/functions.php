@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace TiborSrc\XaiSdkPhp;
 
-const SDK_VERSION = '0.2.3';
+const SDK_VERSION = '0.2.4';
 const SDK_USER_AGENT = 'xai-sdk/' . SDK_VERSION . ' (php)';
 
 const ENCRYPTED_REASONING = 'reasoning.encrypted_content';
@@ -117,15 +117,26 @@ const KNOWN_VOICE_IDS = [
     'zagan', 'zenith',
 ];
 
-/** @var list<string> */
+/**
+ * Transcription model IDs known to this release. `grok-voice-transcribe-1.0` is still accepted.
+ *
+ * @var list<string>
+ */
 const KNOWN_TRANSCRIPTION_MODEL_IDS = [
     'grok-voice-transcribe-2.0',
     'grok-voice-transcribe-1.0',
 ];
 
-/** @var list<string> */
+/**
+ * Realtime voice model IDs known to this release. `grok-voice-latest` points to `grok-voice-3.0`.
+ * `grok-voice-think-fast-2.0` is still accepted; a session that asks for it reports `grok-voice-2.0`.
+ *
+ * @var list<string>
+ */
 const KNOWN_REALTIME_MODEL_IDS = [
     'grok-voice-latest',
+    'grok-voice-3.0',
+    'grok-voice-2.0',
     'grok-voice-think-fast-2.0',
 ];
 

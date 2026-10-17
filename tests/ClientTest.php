@@ -54,8 +54,8 @@ it('defaults store to false and streams a create that omits stream', function ()
     expect($captured->requests[0]->json()['include'])->toBe(['reasoning.encrypted_content']);
     expect($captured->requests[0]->json()['stream'])->toBeTrue();
     expect($captured->requests[0]->headers->get('accept'))->toBe('text/event-stream');
-    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.3 (php)');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.3');
+    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.4 (php)');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.4');
     expect($captured->requests[0]->headers->get('authorization'))->toBe('Bearer k');
 });
 
@@ -115,7 +115,7 @@ it('keeps a caller user agent and overwrites sdk attribution', function () {
     ]);
 
     expect($captured->requests[0]->headers->get('user-agent'))->toBe('curl/8');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.3');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.4');
     expect($captured->requests[0]->headers->get('xai-sdk-language'))->toBe('php/' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION);
 });
 
@@ -830,6 +830,52 @@ it('reads multi-agent encrypted reasoning larger than 1 MiB and limits each even
 it('lists the model ids added in 0.2.3', function () {
     expect(\TiborSrc\XaiSdkPhp\KNOWN_MODEL_IDS)->toContain('grok-4.20-multi-agent');
     expect(\TiborSrc\XaiSdkPhp\KNOWN_VIDEO_MODEL_IDS)->toContain('grok-imagine-video-1.5-lite');
+});
+
+it('posts the 21:9 and 5:2 video aspect ratios unchanged', function () {
+    [$client, $captured] = mockClient(fn () => jsonResponse(['request_id' => 'req_1']));
+    $ultrawide = ['model' => 'grok-imagine-video-1.5', 'prompt' => 'A desert road', 'aspect_ratio' => '21:9'];
+    $panoramic = ['model' => 'grok-imagine-video-1.5', 'prompt' => 'A desert road', 'aspect_ratio' => '5:2'];
+    $client->videos->generate($ultrawide);
+    $client->videos->generate($panoramic);
+
+    expect($captured->requests[0]->json())->toBe($ultrawide);
+    expect($captured->requests[1]->json())->toBe($panoramic);
+});
+
+it('posts guidelines on a responses request', function () {
+    [$client, $captured] = mockClient(fn () => jsonResponse(completedResponse()));
+    $guidelines = [
+        ['type' => 'policy', 'category' => 'violence', 'behavior' => 'decline'],
+        ['type' => 'policy', 'category' => 'self_harm', 'behavior' => 'offer_support'],
+    ];
+    $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'Hello',
+        'guidelines' => $guidelines,
+        'stream' => false,
+    ]);
+
+    expect($captured->requests[0]->json()['guidelines'])->toBe($guidelines);
+});
+
+it('lists the realtime voice model ids added in 0.2.4', function () {
+    expect(\TiborSrc\XaiSdkPhp\KNOWN_REALTIME_MODEL_IDS)->toBe([
+        'grok-voice-latest',
+        'grok-voice-3.0',
+        'grok-voice-2.0',
+        'grok-voice-think-fast-2.0',
+    ]);
+    expect(\TiborSrc\XaiSdkPhp\KNOWN_TRANSCRIPTION_MODEL_IDS)->toContain('grok-voice-transcribe-1.0');
+});
+
+it('posts grok-voice-3.0 and grok-voice-2.0 on a client secret session', function () {
+    [$client, $captured] = mockClient(fn () => jsonResponse(['value' => 'secret', 'expires_at' => 1]));
+    $client->voice->clientSecrets->create(['session' => ['model' => 'grok-voice-3.0']]);
+    $client->voice->clientSecrets->create(['session' => ['model' => 'grok-voice-2.0']]);
+
+    expect($captured->requests[0]->json())->toBe(['session' => ['model' => 'grok-voice-3.0']]);
+    expect($captured->requests[1]->json())->toBe(['session' => ['model' => 'grok-voice-2.0']]);
 });
 
 /** @param array<string, mixed> $extra */

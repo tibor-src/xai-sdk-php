@@ -2,6 +2,19 @@
 
 All notable changes to this PHP port of the SpaceXAI TypeScript SDK are documented here. Version numbers follow `@xai-official/sdk`.
 
+## [0.2.4] - 2026-10-17
+
+### Added
+
+- `aspect_ratio` for `videos->generate()` accepts `21:9` and `5:2`.
+- `KNOWN_REALTIME_MODEL_IDS` includes `grok-voice-3.0` and `grok-voice-2.0`. `grok-voice-latest` points to `grok-voice-3.0`. `grok-voice-think-fast-2.0` is still accepted; a session that asks for it reports `grok-voice-2.0`.
+- `guidelines` on `responses->create()`: per-category instructions for model output. Each entry is `['type' => 'policy', 'category' => ..., 'behavior' => ...]`, where `category` is `sexual`, `violence`, `self_harm`, `illicit`, or `profanity` and `behavior` is `decline` (any category) or `offer_support` (`self_harm` only). Each category may appear at most once.
+
+### Changed
+
+- Live search has been removed. `search_parameters` on a Responses request fails with HTTP 410. A tool with `type` `live_search` is rejected. `web_search_options` is the chat-completions form of the same removal. Use `webSearch()` and `xSearch()`.
+- The API accepts up to 1000 tools on a request.
+
 ## [0.2.3] - 2026-10-08
 
 ### Added

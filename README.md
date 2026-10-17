@@ -1,6 +1,6 @@
 # tibor-src/xai-sdk-php
 
-Unofficial PHP port of the experimental [SpaceXAI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.3).
+Unofficial PHP port of the experimental [SpaceXAI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.4).
 
 This package is not published or maintained by xAI. It follows the TypeScript client's resources, request defaults, and error types. This guide follows the [TypeScript SDK README](https://github.com/xai-org/xai-sdk-ts/blob/main/README.md), with the examples written for PHP. Method calls return their results directly.
 
@@ -376,7 +376,7 @@ foreach ($stream as $event) {
 
 ## Tools
 
-Describe functions with JSON Schema, run the requested function in your application, then return its output to the model:
+Describe functions with JSON Schema, run the requested function in your application, then return its output to the model. A request can include up to 1000 tools:
 
 ```php
 use TiborSrc\XaiSdkPhp\SpaceXAI;
@@ -575,6 +575,8 @@ Besides your own functions, the API has built-in tools. Create them with the hel
 Two kinds of tools run in your application: `function` for your own functions, as shown in [Tools](#tools), and `shell`, where the model writes shell commands for your application to run, as shown in [Shell commands](#shell-commands). When you stream, calls to both arrive through the `client_tool_call` listener.
 
 The helpers return plain tool arrays, so you can also write `['type' => 'web_search']` yourself. See the [SpaceXAI documentation](https://docs.x.ai) for each tool's options.
+
+Live search has been removed. `search_parameters` on `responses->create()` fails with HTTP 410, and a tool with `type` `live_search` is rejected. Use `webSearch()` and `xSearch()`.
 
 ### Web search
 
@@ -865,6 +867,8 @@ if ($result->status === 'done') {
 }
 ```
 
+`aspect_ratio` accepts `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`, `21:9`, and `5:2`.
+
 `wait()` returns once the status is `done`, `failed`, or `expired`. A failed result includes an `error` with a `code` and `message`. If `video.respect_moderation` is `false`, the video did not pass moderation and has no URL. Video URLs are temporary, so download the file promptly.
 
 `wait()` polls every 5 seconds for up to 10 minutes. Pass `interval` and `timeout` in milliseconds to change this, and a `signal` to stop waiting. A timeout throws `TimeoutError`, so you can call `wait()` again. A timeout or an aborted signal leaves the job running: the video keeps generating and is billed when it finishes. The API has no way to cancel a video in this SDK version. To check once, call `$client->videos->get($requestId)`, which returns `status` `pending` until the video is ready.
@@ -1089,7 +1093,7 @@ $secret = $client->voice->clientSecrets->create([
 ]);
 ```
 
-Send `$secret->value` to the browser, which passes `xai-client-secret.<value>` as the WebSocket subprotocol when it connects to `wss://api.x.ai/v1/realtime`. Secrets expire after 10 minutes by default, and `expires_after.seconds` can be at most 3600. Pass `session` to set the session's `model`, `instructions`, `turn_detection`, and `reasoning` when the connection opens.
+Send `$secret->value` to the browser, which passes `xai-client-secret.<value>` as the WebSocket subprotocol when it connects to `wss://api.x.ai/v1/realtime`. Secrets expire after 10 minutes by default, and `expires_after.seconds` can be at most 3600. Pass `session` to set the session's `model`, `instructions`, `turn_detection`, and `reasoning` when the connection opens. `model` accepts the IDs in `KNOWN_REALTIME_MODEL_IDS`: `grok-voice-latest` (which points to `grok-voice-3.0`), `grok-voice-3.0`, `grok-voice-2.0`, and `grok-voice-think-fast-2.0`. A session that asks for `grok-voice-think-fast-2.0` reports `grok-voice-2.0`.
 
 ## Tokenization
 
@@ -1192,6 +1196,21 @@ $stored = $client->responses->create([
 $fetched = $client->responses->get($stored->id);
 $inputItems = $client->responses->inputItems->list($stored->id);
 $client->responses->delete($stored->id);
+```
+
+## Guidelines
+
+`guidelines` on `responses->create()` sets per-category instructions for model output. Each entry is `['type' => 'policy', 'category' => ..., 'behavior' => ...]`. `category` is `sexual`, `violence`, `self_harm`, `illicit`, or `profanity`. `behavior` is `decline` for any of those categories, or `offer_support` for `self_harm` only. Each category may appear at most once. Omit `guidelines` to leave them unset:
+
+```php
+$response = $client->responses->create([
+    'model' => 'grok-4.7',
+    'input' => 'Hello',
+    'guidelines' => [
+        ['type' => 'policy', 'category' => 'violence', 'behavior' => 'decline'],
+        ['type' => 'policy', 'category' => 'self_harm', 'behavior' => 'offer_support'],
+    ],
+]);
 ```
 
 ## Priority processing
