@@ -1,6 +1,6 @@
 {
     "name": "tibor-src/xai-sdk-php",
-    "description": "Unofficial PHP port of the experimental SpaceXAI TypeScript SDK (@xai-official/sdk).",
+    "description": "Unofficial PHP port of the experimental SpaceXSI TypeScript SDK (@xai-official/sdk).",
     "type": "library",
     "license": "Apache-2.0",
     "keywords": ["spacexai", "grok", "sdk", "php"],

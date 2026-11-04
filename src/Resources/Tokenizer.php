@@ -6,14 +6,14 @@ namespace TiborSrc\XaiSdkPhp\Resources;
 
 use TiborSrc\XaiSdkPhp\APIProtocolError;
 use TiborSrc\XaiSdkPhp\Record;
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 use TiborSrc\XaiSdkPhp\Transport;
 
 use function TiborSrc\XaiSdkPhp\requestIds;
 
 final class Tokenizer
 {
-    public function __construct(private readonly SpaceXAI $client) {}
+    public function __construct(private readonly SpaceXSI $client) {}
 
     /** @param array<string, mixed> $params
      * @param array<string, mixed> $opts

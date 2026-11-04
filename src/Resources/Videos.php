@@ -8,7 +8,7 @@ use TiborSrc\XaiSdkPhp\APIProtocolError;
 use TiborSrc\XaiSdkPhp\Http\AbortSignal;
 use TiborSrc\XaiSdkPhp\Porcelain;
 use TiborSrc\XaiSdkPhp\Record;
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 use TiborSrc\XaiSdkPhp\Transport;
 use TiborSrc\XaiSdkPhp\Usage;
 
@@ -20,7 +20,7 @@ final class Videos
 
     public const DEFAULT_WAIT_TIMEOUT_MS = 600_000;
 
-    public function __construct(private readonly SpaceXAI $client) {}
+    public function __construct(private readonly SpaceXSI $client) {}
 
     /** @param array<string, mixed> $body
      * @param array<string, mixed> $opts
@@ -99,8 +99,8 @@ final class Videos
     /** @param array<string, mixed> $opts */
     public function wait(string $requestId, array $opts = []): Record
     {
-        $interval = is_int($opts['interval'] ?? null) ? $opts['interval'] : self::DEFAULT_WAIT_INTERVAL_MS;
-        $timeout = is_int($opts['timeout'] ?? null) ? $opts['timeout'] : self::DEFAULT_WAIT_TIMEOUT_MS;
+        $interval = Transport::waitMillis($opts['interval'] ?? null, self::DEFAULT_WAIT_INTERVAL_MS);
+        $timeout = Transport::waitMillis($opts['timeout'] ?? null, self::DEFAULT_WAIT_TIMEOUT_MS);
         $user = $opts['signal'] ?? null;
         $deadline = new AbortSignal();
         $deadline->deadline = microtime(true) + ($timeout / 1000);

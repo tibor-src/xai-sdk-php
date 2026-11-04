@@ -6,7 +6,7 @@ namespace TiborSrc\XaiSdkPhp\Resources;
 
 use TiborSrc\XaiSdkPhp\APIProtocolError;
 use TiborSrc\XaiSdkPhp\Record;
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 use TiborSrc\XaiSdkPhp\Transport;
 
 use function TiborSrc\XaiSdkPhp\requestIds;
@@ -19,7 +19,7 @@ final class ModelsResource
 
     public readonly VideoModels $video;
 
-    public function __construct(private readonly SpaceXAI $client)
+    public function __construct(private readonly SpaceXSI $client)
     {
         $this->language = new LanguageModels($client);
         $this->image = new ImageModels($client);
@@ -52,7 +52,7 @@ final class ModelsResource
     }
 
     /** @param array<string, mixed> $opts */
-    public static function one(SpaceXAI $client, string $path, array $opts, string $label, string $missing): Record
+    public static function one(SpaceXSI $client, string $path, array $opts, string $label, string $missing): Record
     {
         $result = Transport::send($client, [
             'method' => 'GET',
@@ -71,7 +71,7 @@ final class ModelsResource
     }
 
     /** @param array<string, mixed> $opts */
-    public static function collection(SpaceXAI $client, string $path, array $opts, string $label, string $missing): Record
+    public static function collection(SpaceXSI $client, string $path, array $opts, string $label, string $missing): Record
     {
         $result = Transport::send($client, [
             'method' => 'GET',
@@ -92,7 +92,7 @@ final class ModelsResource
 
 final class LanguageModels
 {
-    public function __construct(private readonly SpaceXAI $client) {}
+    public function __construct(private readonly SpaceXSI $client) {}
 
     /** @param array<string, mixed> $opts */
     public function list(array $opts = []): Record
@@ -109,7 +109,7 @@ final class LanguageModels
 
 final class ImageModels
 {
-    public function __construct(private readonly SpaceXAI $client) {}
+    public function __construct(private readonly SpaceXSI $client) {}
 
     /** @param array<string, mixed> $opts */
     public function list(array $opts = []): Record
@@ -126,7 +126,7 @@ final class ImageModels
 
 final class VideoModels
 {
-    public function __construct(private readonly SpaceXAI $client) {}
+    public function __construct(private readonly SpaceXSI $client) {}
 
     /** @param array<string, mixed> $opts */
     public function list(array $opts = []): Record

@@ -13,7 +13,7 @@ use TiborSrc\XaiSdkPhp\Http\FormData;
 use TiborSrc\XaiSdkPhp\Page;
 use TiborSrc\XaiSdkPhp\Porcelain;
 use TiborSrc\XaiSdkPhp\Record;
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 use TiborSrc\XaiSdkPhp\Transport;
 
 use function TiborSrc\XaiSdkPhp\requestIds;
@@ -22,7 +22,7 @@ final class VoiceResource
 {
     /** @var list<string> */
     private const AUDIO_FORMATS = [
-        'pcm', 'mulaw', 'alaw', 'wav', 'mp3', 'ogg', 'opus', 'flac', 'aac', 'mp4', 'm4a', 'mkv', 'webm',
+        'pcm', 'mulaw', 'alaw', 'wav', 'mp3', 'ogg', 'opus', 'flac', 'aac', 'mp4', 'm4a', 'mkv', 'webm', 'avi', 'mov',
     ];
 
     /** MIME subtypes, without an `x-` prefix, whose format has another name. */
@@ -30,13 +30,16 @@ final class VoiceResource
         'mpeg' => 'mp3',
         'wave' => 'wav',
         'matroska' => 'mkv',
+        'msvideo' => 'avi',
+        'vnd.avi' => 'avi',
+        'quicktime' => 'mov',
     ];
 
     public readonly CustomVoices $custom;
 
     public readonly ClientSecrets $clientSecrets;
 
-    public function __construct(private readonly SpaceXAI $client)
+    public function __construct(private readonly SpaceXSI $client)
     {
         $this->custom = new CustomVoices($client);
         $this->clientSecrets = new ClientSecrets($client);
@@ -200,7 +203,7 @@ final class VoiceResource
 
 final class CustomVoices
 {
-    public function __construct(private readonly SpaceXAI $client) {}
+    public function __construct(private readonly SpaceXSI $client) {}
 
     /** @param array<string, mixed> $body
      * @param array<string, mixed> $opts
@@ -325,7 +328,7 @@ final class CustomVoices
 
 final class ClientSecrets
 {
-    public function __construct(private readonly SpaceXAI $client) {}
+    public function __construct(private readonly SpaceXSI $client) {}
 
     /** @param array<string, mixed> $body
      * @param array<string, mixed> $opts

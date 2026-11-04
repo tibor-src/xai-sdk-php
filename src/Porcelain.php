@@ -186,6 +186,9 @@ final class Porcelain
         if (self::hasBytes($bytes, 0, [0x52, 0x49, 0x46, 0x46]) && self::hasBytes($bytes, 8, [0x57, 0x41, 0x56, 0x45])) {
             return 'wav';
         }
+        if (self::hasBytes($bytes, 0, [0x52, 0x49, 0x46, 0x46]) && self::hasBytes($bytes, 8, [0x41, 0x56, 0x49, 0x20])) {
+            return 'avi';
+        }
         if (self::hasBytes($bytes, 0, [0x66, 0x4c, 0x61, 0x43])) {
             return 'flac';
         }
@@ -196,6 +199,9 @@ final class Porcelain
             return self::hasBytes($bytes, $offset, [0x4f, 0x70, 0x75, 0x73, 0x48, 0x65, 0x61, 0x64]) ? 'opus' : 'ogg';
         }
         if (self::hasBytes($bytes, 4, [0x66, 0x74, 0x79, 0x70])) {
+            if (self::hasBytes($bytes, 8, [0x71, 0x74, 0x20, 0x20])) {
+                return 'mov';
+            }
             $m4a = self::hasBytes($bytes, 8, [0x4d, 0x34, 0x41, 0x20]);
             $m4b = self::hasBytes($bytes, 8, [0x4d, 0x34, 0x42, 0x20]);
 

@@ -15,7 +15,7 @@ use TiborSrc\XaiSdkPhp\Porcelain;
 use TiborSrc\XaiSdkPhp\Record;
 use TiborSrc\XaiSdkPhp\ResponseStream;
 use TiborSrc\XaiSdkPhp\RetryBudget;
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 use TiborSrc\XaiSdkPhp\Transport;
 
 use function TiborSrc\XaiSdkPhp\requestIds;
@@ -24,7 +24,7 @@ final class Responses
 {
     public readonly InputItems $inputItems;
 
-    public function __construct(private readonly SpaceXAI $client)
+    public function __construct(private readonly SpaceXSI $client)
     {
         $this->inputItems = new InputItems($client);
     }
@@ -132,8 +132,10 @@ final class Responses
     private function streamToResponse(array $payload, array $opts): ModelResponse
     {
         $streamOpts = $opts;
+        // Reasoning can run silently for minutes, so only a per-request idleTimeout applies.
+        // The cap is 24 hours, which is what an omitted idle timeout means.
         if (! array_key_exists('idleTimeout', $opts)) {
-            $streamOpts['idleTimeout'] = 0;
+            $streamOpts['idleTimeout'] = Transport::MAX_TIMEOUT_MS;
         }
         $budget = $this->retryBudget($opts);
         $result = Transport::send($this->client, [
@@ -233,7 +235,7 @@ final class Responses
 
 final class InputItems
 {
-    public function __construct(private readonly SpaceXAI $client) {}
+    public function __construct(private readonly SpaceXSI $client) {}
 
     /**
      * @param array{after?: string, limit?: int, order?: string} $query

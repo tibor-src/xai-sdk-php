@@ -15,7 +15,12 @@ use TiborSrc\XaiSdkPhp\Resources\Tokenizer;
 use TiborSrc\XaiSdkPhp\Resources\Videos;
 use TiborSrc\XaiSdkPhp\Resources\VoiceResource;
 
-final class SpaceXAI
+/**
+ * Client for the SpaceXSI API.
+ *
+ * `SpaceXAI` remains as a deprecated alias of this class.
+ */
+final class SpaceXSI
 {
     public readonly string $baseURL;
 
@@ -65,13 +70,13 @@ final class SpaceXAI
     {
         $apiKey = $opts['apiKey'] ?? Env::apiKey();
         if (! is_string($apiKey) || $apiKey === '') {
-            throw new \RuntimeException('SpaceXAI: apiKey is missing (set XAI_API_KEY or pass apiKey)');
+            throw new \RuntimeException('SpaceXSI: apiKey is missing (set XAI_API_KEY or pass apiKey)');
         }
         Credentials::store($this, $apiKey);
         $base = is_string($opts['baseURL'] ?? null) ? $opts['baseURL'] : Transport::DEFAULT_BASE_URL;
         $this->baseURL = rtrim($base, '/');
-        $this->timeout = is_int($opts['timeout'] ?? null) ? $opts['timeout'] : Transport::DEFAULT_TIMEOUT_MS;
-        $this->idleTimeout = is_int($opts['idleTimeout'] ?? null) ? $opts['idleTimeout'] : Transport::DEFAULT_IDLE_TIMEOUT_MS;
+        $this->timeout = Transport::attemptMillis($opts['timeout'] ?? null, Transport::DEFAULT_TIMEOUT_MS);
+        $this->idleTimeout = Transport::attemptMillis($opts['idleTimeout'] ?? null, Transport::DEFAULT_IDLE_TIMEOUT_MS);
         $this->maxResponseBodyBytes = is_int($opts['maxResponseBodyBytes'] ?? null) ? $opts['maxResponseBodyBytes'] : Transport::DEFAULT_MAX_RESPONSE_BODY_BYTES;
         $this->maxRetries = is_int($opts['maxRetries'] ?? null) ? $opts['maxRetries'] : Transport::DEFAULT_MAX_RETRIES;
         $this->retryBeforeOutput = (bool) ($opts['retryBeforeOutput'] ?? false);

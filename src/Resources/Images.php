@@ -8,7 +8,7 @@ use TiborSrc\XaiSdkPhp\APIProtocolError;
 use TiborSrc\XaiSdkPhp\Http\AbortSignal;
 use TiborSrc\XaiSdkPhp\Porcelain;
 use TiborSrc\XaiSdkPhp\Record;
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 use TiborSrc\XaiSdkPhp\Transport;
 use TiborSrc\XaiSdkPhp\Usage;
 
@@ -16,7 +16,7 @@ use function TiborSrc\XaiSdkPhp\requestIds;
 
 final class Images
 {
-    public function __construct(private readonly SpaceXAI $client) {}
+    public function __construct(private readonly SpaceXSI $client) {}
 
     /** @param array<string, mixed> $body
      * @param array<string, mixed> $opts

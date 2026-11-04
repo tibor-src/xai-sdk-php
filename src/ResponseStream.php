@@ -92,8 +92,16 @@ final class ResponseStream implements \IteratorAggregate
         if ($name === 'http') {
             return $this->http;
         }
+        if ($name === 'watermarked') {
+            return ModelResponse::isWatermarked($this->http);
+        }
 
         return null;
+    }
+
+    public function __isset(string $name): bool
+    {
+        return $name === 'watermarked';
     }
 
     /** @param callable(mixed): void $listener */

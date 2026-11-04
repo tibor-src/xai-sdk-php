@@ -10,7 +10,7 @@ final class ModelResponse
     private const SKIP = ['__proto__', 'constructor', 'prototype', 'parsed'];
 
     /** @var list<string> */
-    private const OWN = ['id', 'status', 'output', 'incomplete_details', 'usage', 'http', 'raw'];
+    private const OWN = ['id', 'status', 'output', 'incomplete_details', 'usage', 'http', 'raw', 'watermarked'];
 
     public string $id;
 
@@ -24,6 +24,9 @@ final class ModelResponse
     public Record $usage;
 
     public HttpMeta $http;
+
+    /** True when `http` headers include `x-watermark: true`, which means the API watermarked the text output. */
+    public readonly bool $watermarked;
 
     /** @var array<string, mixed> */
     public readonly array $raw;
@@ -51,6 +54,7 @@ final class ModelResponse
         $this->incomplete_details = $payload['incomplete_details'] ?? null;
         $this->usage = Usage::map($payload['usage'] ?? null);
         $this->http = $http;
+        $this->watermarked = self::isWatermarked($http);
         $this->raw = $payload;
         foreach ($payload as $key => $value) {
             if (in_array($key, self::SKIP, true) || in_array($key, self::OWN, true) || method_exists($this, (string) $key)) {
@@ -76,6 +80,13 @@ final class ModelResponse
         }
 
         return array_key_exists($name, $this->extras) && $this->extras[$name] !== null;
+    }
+
+    public static function isWatermarked(HttpMeta $http): bool
+    {
+        $value = $http->headers->get('x-watermark');
+
+        return is_string($value) && strtolower(trim($value)) === 'true';
     }
 
     public function toText(): string

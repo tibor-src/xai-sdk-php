@@ -17,7 +17,7 @@ final class Credentials
     {
         $map = self::map();
         if (! isset($map[$client])) {
-            throw new \RuntimeException('SpaceXAI: internal API key state is unavailable');
+            throw new \RuntimeException('SpaceXSI: internal API key state is unavailable');
         }
 
         return $map[$client];

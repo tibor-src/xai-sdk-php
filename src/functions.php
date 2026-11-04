@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace TiborSrc\XaiSdkPhp;
 
-const SDK_VERSION = '0.2.4';
+const SDK_VERSION = '0.2.8';
 const SDK_USER_AGENT = 'xai-sdk/' . SDK_VERSION . ' (php)';
 
 const ENCRYPTED_REASONING = 'reasoning.encrypted_content';
@@ -160,6 +160,9 @@ function webSearch(array $options = []): array
 }
 
 /**
+ * Searches posts on X. `allowed_x_handles` and `excluded_x_handles` each take up to 20 handles and can't be
+ * used together. `to_date` is exclusive, so one day is `['from_date' => '2026-10-01', 'to_date' => '2026-10-02']`.
+ *
  * @param array<string, mixed> $options
  * @return array<string, mixed>
  */
@@ -281,3 +284,10 @@ function is_list_array(mixed $value): bool
 {
     return is_array($value) && array_is_list($value);
 }
+
+/**
+ * `SpaceXAI` is a deprecated alias of `SpaceXSI`. `new SpaceXAI()` and `instanceof SpaceXAI` keep working.
+ *
+ * @deprecated 0.2.6 Use SpaceXSI
+ */
+class_alias(SpaceXSI::class, SpaceXAI::class);

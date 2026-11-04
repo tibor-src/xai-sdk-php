@@ -10,10 +10,12 @@ use TiborSrc\XaiSdkPhp\Http\ChunkSource;
 use TiborSrc\XaiSdkPhp\Http\File;
 use TiborSrc\XaiSdkPhp\Http\FormData;
 use TiborSrc\XaiSdkPhp\Http\HeaderBag;
+use TiborSrc\XaiSdkPhp\Http\HttpResponse;
 use TiborSrc\XaiSdkPhp\IdleStream;
 use TiborSrc\XaiSdkPhp\ModelResponse;
 use TiborSrc\XaiSdkPhp\RateLimitError;
 use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 use TiborSrc\XaiSdkPhp\Sse;
 use TiborSrc\XaiSdkPhp\TimeoutError;
 use TiborSrc\XaiSdkPhp\Transport;
@@ -27,7 +29,8 @@ it('requires an api key', function () {
     unset($_ENV['XAI_API_KEY'], $_SERVER['XAI_API_KEY']);
 
     try {
-        expect(fn () => new SpaceXAI())->toThrow(RuntimeException::class, 'SpaceXAI: apiKey is missing (set XAI_API_KEY or pass apiKey)');
+        expect(fn () => new SpaceXAI())->toThrow(RuntimeException::class, 'SpaceXSI: apiKey is missing (set XAI_API_KEY or pass apiKey)');
+        expect(fn () => new SpaceXSI())->toThrow(RuntimeException::class, 'SpaceXSI: apiKey is missing (set XAI_API_KEY or pass apiKey)');
     } finally {
         if (is_string($previous) && $previous !== '') {
             putenv('XAI_API_KEY=' . $previous);
@@ -54,8 +57,8 @@ it('defaults store to false and streams a create that omits stream', function ()
     expect($captured->requests[0]->json()['include'])->toBe(['reasoning.encrypted_content']);
     expect($captured->requests[0]->json()['stream'])->toBeTrue();
     expect($captured->requests[0]->headers->get('accept'))->toBe('text/event-stream');
-    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.4 (php)');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.4');
+    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.8 (php)');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.8');
     expect($captured->requests[0]->headers->get('authorization'))->toBe('Bearer k');
 });
 
@@ -115,7 +118,7 @@ it('keeps a caller user agent and overwrites sdk attribution', function () {
     ]);
 
     expect($captured->requests[0]->headers->get('user-agent'))->toBe('curl/8');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.4');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.8');
     expect($captured->requests[0]->headers->get('xai-sdk-language'))->toBe('php/' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION);
 });
 
@@ -630,6 +633,10 @@ it('names an unnamed audio blob after its format', function () {
         new File($bytes, 'call.mp3', 'audio/wav'),
         new Blob($bytes, 'audio/webm'),
         new Blob($bytes, 'video/webm'),
+        new Blob($bytes, 'video/x-msvideo'),
+        new Blob($bytes, 'video/avi'),
+        new Blob($bytes, 'video/vnd.avi'),
+        new Blob($bytes, 'video/quicktime'),
         new Blob($bytes, 'audio/aiff'),
     ];
     foreach ($files as $file) {
@@ -657,6 +664,10 @@ it('names an unnamed audio blob after its format', function () {
         'call.mp3',
         'audio.webm',
         'audio.webm',
+        'audio.avi',
+        'audio.avi',
+        'audio.avi',
+        'audio.mov',
         'blob',
         'blob',
         'audio.wav',
@@ -679,6 +690,8 @@ it('names an unnamed blob without a mime type after the format its first bytes s
         new Blob("\x00\x00\x00\x20" . 'ftypM4A ' . "\x00\x00\x00\x00"),
         new Blob("\x00\x00\x00\x20" . 'ftypM4B ' . "\x00\x00\x00\x00"),
         new Blob("\x00\x00\x00\x18" . 'ftypisom' . "\x00\x00\x02\x00"),
+        new Blob("\x00\x00\x00\x14" . 'ftypqt  '),
+        new Blob('RIFF' . "\x00\x00\x00\x00" . 'AVI '),
         new Blob("\x1a\x45\xdf\xa3" . 'matroska'),
         new Blob("\x1a\x45\xdf\xa3" . 'webm'),
         new File($wav, '', 'application/octet-stream'),
@@ -711,6 +724,8 @@ it('names an unnamed blob without a mime type after the format its first bytes s
         'audio.m4a',
         'audio.m4a',
         'audio.mp4',
+        'audio.mov',
+        'audio.avi',
         'audio.mkv',
         'audio.webm',
         'audio.wav',
@@ -846,8 +861,10 @@ it('posts the 21:9 and 5:2 video aspect ratios unchanged', function () {
 it('posts guidelines on a responses request', function () {
     [$client, $captured] = mockClient(fn () => jsonResponse(completedResponse()));
     $guidelines = [
+        ['type' => 'policy', 'category' => 'nsfw', 'behavior' => 'decline'],
         ['type' => 'policy', 'category' => 'violence', 'behavior' => 'decline'],
-        ['type' => 'policy', 'category' => 'self_harm', 'behavior' => 'offer_support'],
+        ['type' => 'policy', 'category' => 'profanity', 'behavior' => 'decline'],
+        ['type' => 'policy', 'category' => 'cyber', 'behavior' => 'allow'],
     ];
     $client->responses->create([
         'model' => 'grok-4.6',
@@ -867,6 +884,179 @@ it('lists the realtime voice model ids added in 0.2.4', function () {
         'grok-voice-think-fast-2.0',
     ]);
     expect(\TiborSrc\XaiSdkPhp\KNOWN_TRANSCRIPTION_MODEL_IDS)->toContain('grok-voice-transcribe-1.0');
+});
+
+it('keeps SpaceXAI as an alias of SpaceXSI and caps timeouts at 24 hours', function () {
+    expect(Transport::delayMs(0))->toBe(0);
+    expect(Transport::delayMs(-5))->toBe(0);
+    expect(Transport::delayMs(NAN))->toBe(0);
+    expect(Transport::delayMs(INF))->toBe(Transport::MAX_TIMEOUT_MS);
+    expect(Transport::delayMs(PHP_INT_MAX))->toBe(Transport::MAX_TIMEOUT_MS);
+    expect(Transport::limitMs(0))->toBe(Transport::MAX_TIMEOUT_MS);
+    expect(Transport::limitMs(-1))->toBe(Transport::MAX_TIMEOUT_MS);
+    expect(Transport::limitMs(NAN))->toBe(Transport::MAX_TIMEOUT_MS);
+    expect(Transport::limitMs(INF))->toBe(Transport::MAX_TIMEOUT_MS);
+    expect(Transport::limitMs(1_500))->toBe(1_500);
+
+    $client = new SpaceXSI([
+        'apiKey' => 'k',
+        'timeout' => 0,
+        'idleTimeout' => INF,
+        'fetch' => fn () => jsonResponse(completedResponse()),
+    ]);
+    $alias = new SpaceXAI([
+        'apiKey' => 'k',
+        'timeout' => NAN,
+        'fetch' => fn () => jsonResponse(completedResponse()),
+    ]);
+
+    expect($client)->toBeInstanceOf(SpaceXAI::class);
+    expect($alias)->toBeInstanceOf(SpaceXSI::class);
+    expect($client->timeout)->toBe(Transport::MAX_TIMEOUT_MS);
+    expect($client->idleTimeout)->toBe(Transport::MAX_TIMEOUT_MS);
+    expect($alias->timeout)->toBe(Transport::MAX_TIMEOUT_MS);
+});
+
+it('treats a non-positive request timeout as 24 hours', function () {
+    [$client, $captured] = mockClient(fn () => jsonResponse(completedResponse()));
+    $before = microtime(true);
+    $response = $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+        'stream' => false,
+    ], ['timeout' => 0, 'idleTimeout' => 0]);
+
+    $deadline = $captured->requests[0]->signal->deadline;
+    expect($response->toText())->toBe('Hello world');
+    expect($deadline - $before)->toBeGreaterThan(86_000);
+    expect($deadline - $before)->toBeLessThan(86_500);
+});
+
+it('caps a video wait timeout and still expires a zero timeout at once', function () {
+    [$client, $captured] = mockClient(
+        fn () => jsonResponse(['status' => 'done', 'request_id' => 'req_1']),
+        ['timeout' => Transport::MAX_TIMEOUT_MS],
+    );
+    $before = microtime(true);
+    $result = $client->videos->wait('req_1', ['timeout' => INF, 'interval' => 0]);
+
+    expect($result->status)->toBe('done');
+    expect($captured->requests[0]->signal->deadline - $before)->toBeGreaterThan(86_000);
+    expect($captured->requests[0]->signal->deadline - $before)->toBeLessThan(86_500);
+
+    [$batches, $batchCaptured] = mockClient(
+        fn () => jsonResponse(batchBody(0, 1)),
+        ['timeout' => Transport::MAX_TIMEOUT_MS],
+    );
+    $batchBefore = microtime(true);
+    $batches->batches->wait('batch_1', ['timeout' => 9_999_999_999, 'interval' => 0]);
+    expect($batchCaptured->requests[0]->signal->deadline - $batchBefore)->toBeGreaterThan(86_000);
+    expect($batchCaptured->requests[0]->signal->deadline - $batchBefore)->toBeLessThan(86_500);
+});
+
+it('forwards temperature and top_p and keeps a content_filter reason', function () {
+    [$client, $captured] = mockClient(fn () => jsonResponse(completedResponse([
+        'incomplete_details' => ['reason' => 'content_filter'],
+        'temperature' => 1.5,
+        'top_p' => 0.99,
+    ])));
+    $response = $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+        'temperature' => 1.5,
+        'top_p' => 0.99,
+        'stream' => false,
+    ]);
+
+    expect($captured->requests[0]->json()['temperature'])->toBe(1.5);
+    expect($captured->requests[0]->json()['top_p'])->toBe(0.99);
+    expect($response->incomplete_details)->toBe(['reason' => 'content_filter']);
+    expect($response->temperature)->toBe(1.5);
+    expect($response->top_p)->toBe(0.99);
+});
+
+it('reads x-watermark on a response and on a stream', function () {
+    [$client] = mockClient(fn () => jsonResponse(completedResponse(), 200, ['x-watermark' => ' true ']));
+    $marked = $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+        'stream' => false,
+    ]);
+    [$plain] = mockClient(fn () => jsonResponse(completedResponse(), 200, ['x-watermark' => 'false']));
+    $unmarked = $plain->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+        'stream' => false,
+    ]);
+    [$streaming] = mockClient(fn () => sseResponse([
+        ['type' => 'response.completed', 'response' => completedResponse()],
+    ], ['x-watermark' => 'TRUE']));
+    $stream = $streaming->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+        'stream' => true,
+    ]);
+
+    expect($marked->watermarked)->toBeTrue();
+    expect($unmarked->watermarked)->toBeFalse();
+    expect(isset($stream->watermarked))->toBeTrue();
+    expect($stream->watermarked)->toBeTrue();
+    expect($stream->done()->watermarked)->toBeTrue();
+});
+
+it('retries a drop before the first stream byte when retryBeforeOutput is set', function () {
+    [$client, $captured] = mockClient(function ($request, int $n) {
+        if ($n === 1) {
+            return new HttpResponse(200, HeaderBag::from([
+                'content-type' => 'text/event-stream',
+                'x-watermark' => 'true',
+                'x-request-id' => 'req_drop',
+            ]), '', new ChunkSource([], null, false, new RuntimeException('Connection error'), true));
+        }
+
+        return jsonResponse(completedResponse(), 200, ['x-request-id' => 'req_ok']);
+    }, ['maxRetries' => 2, 'retryBeforeOutput' => true]);
+
+    $response = $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+    ]);
+
+    expect($response->toText())->toBe('Hello world');
+    expect($response->watermarked)->toBeFalse();
+    expect($response->http->requestId)->toBe('req_ok');
+    expect($captured->requests)->toHaveCount(2);
+    expect($captured->requests[0]->headers->get('x-client-request-id'))
+        ->toBe($captured->requests[1]->headers->get('x-client-request-id'));
+});
+
+it('does not retry a drop before the first byte without retryBeforeOutput', function () {
+    [$client, $captured] = mockClient(fn () => new HttpResponse(200, HeaderBag::from([
+        'content-type' => 'text/event-stream',
+        'x-request-id' => 'req_drop',
+    ]), '', null));
+
+    expect(fn () => $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+    ]))->toThrow(APIConnectionError::class, 'SSE response had no body');
+    expect($captured->requests)->toHaveCount(1);
+});
+
+it('does not retry an idle timeout before the first stream byte', function () {
+    [$client, $captured] = mockClient(fn () => new HttpResponse(200, HeaderBag::from([
+        'content-type' => 'text/event-stream',
+        'x-request-id' => 'req_idle',
+    ]), '', new ChunkSource([], null, false, new TimeoutError('Idle timeout'), true)), [
+        'maxRetries' => 2,
+        'retryBeforeOutput' => true,
+    ]);
+
+    expect(fn () => $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+    ]))->toThrow(TimeoutError::class, 'Idle timeout');
+    expect($captured->requests)->toHaveCount(1);
 });
 
 it('posts grok-voice-3.0 and grok-voice-2.0 on a client secret session', function () {

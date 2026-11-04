@@ -1,10 +1,10 @@
 # tibor-src/xai-sdk-php
 
-Unofficial PHP port of the experimental [SpaceXAI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.4).
+Unofficial PHP port of the experimental [SpaceXSI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.8).
 
 This package is not published or maintained by xAI. It follows the TypeScript client's resources, request defaults, and error types. This guide follows the [TypeScript SDK README](https://github.com/xai-org/xai-sdk-ts/blob/main/README.md), with the examples written for PHP. Method calls return their results directly.
 
-Use Grok from PHP with a client built on the SpaceXAI REST API. The SDK has no runtime dependencies beyond PHP's curl, json, and mbstring extensions. It includes streaming, structured output, function tools, image input, image and video generation, file uploads, batch processing, text to speech and transcription, multi-turn conversations, and access to usage and HTTP metadata.
+Use Grok from PHP with a client built on the SpaceXSI REST API. The SDK has no runtime dependencies beyond PHP's curl, json, and mbstring extensions. It includes streaming, structured output, function tools, image input, image and video generation, file uploads, batch processing, text to speech and transcription, multi-turn conversations, and access to usage and HTTP metadata.
 
 > **Experimental.** The TypeScript SDK this port follows is in early development. It covers the Responses API, image and video generation, the Files, Batch, and Voice APIs, tokenization, and model and account lookup. Its interfaces may change between releases before 1.0. Pin an exact version and read the [changelog](./CHANGELOG.md) when upgrading. Report issues with this port in [this repository](https://github.com/tibor-src/xai-sdk-php/issues).
 
@@ -12,7 +12,7 @@ Use Grok from PHP with a client built on the SpaceXAI REST API. The SDK has no r
 
 - PHP 8.2 or later
 - The curl, json, and mbstring extensions
-- A [SpaceXAI API key](https://console.x.ai)
+- A [SpaceXSI API key](https://console.x.ai)
 
 ## Installation
 
@@ -29,9 +29,9 @@ export XAI_API_KEY="your-api-key"
 ```
 
 ```php
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 
-$client = new SpaceXAI();
+$client = new SpaceXSI();
 
 $response = $client->responses->create([
     'model' => 'grok-4.7',
@@ -42,6 +42,8 @@ echo $response->toText();
 ```
 
 Keep API keys on the server.
+
+The client used to be named `SpaceXAI`. That name still works as a deprecated alias of `SpaceXSI`, so existing code runs unchanged.
 
 ## Streaming
 
@@ -70,9 +72,9 @@ Reasoning models think before they answer, and at the default effort a long answ
 Besides `text`, `on()` has helper events for the rest of a response:
 
 - `reasoning` for each chunk of reasoning text or reasoning summary
-- `tool_call` for each tool call once its arguments are complete, whether your code or SpaceXAI runs it. Check `type` to tell them apart
+- `tool_call` for each tool call once its arguments are complete, whether your code or SpaceXSI runs it. Check `type` to tell them apart
 - `client_tool_call` for each call that your code runs: your function tools and shell commands
-- `server_tool_call` for each call to a tool that SpaceXAI runs, such as web search or code execution
+- `server_tool_call` for each call to a tool that SpaceXSI runs, such as web search or code execution
 - `image` for each finished image generation call, with the base64 image in `result`
 - `citation` for each URL citation in the answer
 - `json` for structured output: the output parsed so far, each time more text arrives. See [Streaming structured output](#streaming-structured-output)
@@ -117,9 +119,9 @@ If you stop consuming a stream early, call `$stream->close()` to cancel its resp
 Responses are stored only when you opt in. Use `toInput()` to carry the model output, including encrypted reasoning content, into the next turn. Reuse one `prompt_cache_key` across the conversation to improve prompt cache routing:
 
 ```php
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 
-$client = new SpaceXAI();
+$client = new SpaceXSI();
 $promptCacheKey = 'conversation:' . sprintf(
     '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
     random_int(0, 0xffff),
@@ -379,11 +381,11 @@ foreach ($stream as $event) {
 Describe functions with JSON Schema, run the requested function in your application, then return its output to the model. A request can include up to 1000 tools:
 
 ```php
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 
 use function TiborSrc\XaiSdkPhp\isFunctionCall;
 
-$client = new SpaceXAI();
+$client = new SpaceXSI();
 $prompt = 'What is the weather in San Francisco?';
 $input = [['role' => 'user', 'content' => $prompt]];
 $getWeatherTool = [
@@ -452,9 +454,9 @@ Treat function names and arguments as untrusted input. Only dispatch functions y
 To let the model call tools until it has an answer, run a loop. Stream a turn, run each function call as soon as it finishes streaming, then send the outputs back along with the model's output. Stop when a turn makes no function calls, and cap the number of turns so a model that keeps calling tools cannot loop forever. This reuses `$getWeatherTool` and `$getWeather` from the example above:
 
 ```php
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 
-$client = new SpaceXAI();
+$client = new SpaceXSI();
 $tools = [$getWeatherTool];
 $handlers = [
     'get_weather' => $getWeather,
@@ -515,9 +517,9 @@ The `$handlers` map is the list of functions the model may call. `$runTool` retu
 With the `shell` tool, the model writes shell commands and your application runs them. Use it for agents that work on your machine, such as exploring a repository, running tests, or checking disk space. Each call arrives through the `client_tool_call` listener as a `shell_call`, with the commands in `action.commands`. The model writes these commands, so run them in a sandbox or container, or check each one before running it:
 
 ```php
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 
-$client = new SpaceXAI();
+$client = new SpaceXSI();
 
 $stream = $client->responses->create([
     'model' => 'grok-4.7',
@@ -562,7 +564,7 @@ Asked to write release notes, the model reads `./skills/release-notes/SKILL.md`,
 
 ## Built-in tools
 
-Besides your own functions, the API has built-in tools. Create them with the helpers in this package, which set each tool's `type`. SpaceXAI runs these tools and includes their results in the response:
+Besides your own functions, the API has built-in tools. Create them with the helpers in this package, which set each tool's `type`. SpaceXSI runs these tools and includes their results in the response:
 
 - `webSearch()` (`web_search`) searches the web. Options include `allowed_domains`, `excluded_domains`, `user_location`, and `search_context_size`.
 - `xSearch()` (`x_search`) searches posts on X. Options include `allowed_x_handles`, `excluded_x_handles`, `from_date`, and `to_date`.
@@ -574,7 +576,7 @@ Besides your own functions, the API has built-in tools. Create them with the hel
 
 Two kinds of tools run in your application: `function` for your own functions, as shown in [Tools](#tools), and `shell`, where the model writes shell commands for your application to run, as shown in [Shell commands](#shell-commands). When you stream, calls to both arrive through the `client_tool_call` listener.
 
-The helpers return plain tool arrays, so you can also write `['type' => 'web_search']` yourself. See the [SpaceXAI documentation](https://docs.x.ai) for each tool's options.
+The helpers return plain tool arrays, so you can also write `['type' => 'web_search']` yourself. See the [SpaceXSI documentation](https://docs.x.ai) for each tool's options.
 
 Live search has been removed. `search_parameters` on `responses->create()` fails with HTTP 410, and a tool with `type` `live_search` is rejected. Use `webSearch()` and `xSearch()`.
 
@@ -583,11 +585,11 @@ Live search has been removed. `search_parameters` on `responses->create()` fails
 Add the web search tool when a prompt needs current information:
 
 ```php
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 
 use function TiborSrc\XaiSdkPhp\webSearch;
 
-$client = new SpaceXAI();
+$client = new SpaceXSI();
 
 $response = $client->responses->create([
     'model' => 'grok-4.7',
@@ -608,12 +610,12 @@ use function TiborSrc\XaiSdkPhp\xSearch;
 
 $response = $client->responses->create([
     'model' => 'grok-4.7',
-    'input' => 'What has SpaceXAI announced on X this month?',
+    'input' => 'What has SpaceXSI announced on X this month?',
     'tools' => [xSearch(['allowed_x_handles' => ['xai'], 'from_date' => '2026-09-01'])],
 ]);
 ```
 
-`allowed_x_handles` and `excluded_x_handles` each take up to 20 handles. A search uses one of those lists. Set `enable_image_understanding` or `enable_video_understanding` to let the model look at media in posts.
+`allowed_x_handles` and `excluded_x_handles` each take up to 20 handles and can't be used together. Set `enable_image_understanding` or `enable_video_understanding` to let the model look at media in posts.
 
 `to_date` is exclusive, so a single day runs from that date to the next: `xSearch(['from_date' => '2026-10-01', 'to_date' => '2026-10-02'])`. Without dates, the model chooses which dates to search.
 
@@ -661,7 +663,7 @@ $response = $client->responses->create([
 
 ### Remote MCP servers
 
-Give the model the tools of a remote MCP server. SpaceXAI connects to the server and calls its tools during the response:
+Give the model the tools of a remote MCP server. SpaceXSI connects to the server and calls its tools during the response:
 
 ```php
 use function TiborSrc\XaiSdkPhp\mcp;
@@ -680,12 +682,12 @@ The server must use the Streaming HTTP or SSE transport. Limit the model to some
 Add the image generation tool to let the model create or edit images as one step of a response. Each image arrives as an `image_generation_call` output item whose `result` holds base64 image data:
 
 ```php
-use TiborSrc\XaiSdkPhp\SpaceXAI;
+use TiborSrc\XaiSdkPhp\SpaceXSI;
 
 use function TiborSrc\XaiSdkPhp\imageGeneration;
 use function TiborSrc\XaiSdkPhp\isImageGenerationCall;
 
-$client = new SpaceXAI();
+$client = new SpaceXSI();
 
 $response = $client->responses->create([
     'model' => 'grok-4.7',
@@ -716,8 +718,26 @@ Every completed response provides:
 - `$response->parsed` for non-throwing JSON parsing
 - `$response->output` for output items
 - `$response->usage` for token counts, server-side tool use, and cost when available
-- `$response->http` for the HTTP status, headers, SpaceXAI request ID, and client request ID
+- `$response->http` for the HTTP status, headers, SpaceXSI request ID, and client request ID
+- `$response->watermarked` for whether the API watermarked the text output. See [Watermarking](#watermarking)
 - `$response->raw` for the response object as the API sent it, including fields this SDK does not model
+
+### Watermarking
+
+The API adds an invisible watermark to text output from supported models. `$response->watermarked` is `true` when the response has the header `x-watermark: true`, and `false` otherwise:
+
+```php
+$response = $client->responses->create([
+    'model' => 'grok-4.7',
+    'input' => 'Write a haiku about the ocean.',
+]);
+
+var_export($response->watermarked);
+```
+
+With `stream` set to `true`, `$stream->watermarked` is available as soon as `create()` returns, like `$stream->http`.
+
+Watermarking is on by default for supported models from November 7, 2026. Opting out is a team setting for each model in the SpaceXSI Console, not a code change. See [Output Watermarking](https://docs.x.ai/developers/advanced-api-usage/watermarking) for the supported models and how to opt out.
 
 Use the exported functions when inspecting output items:
 
@@ -787,7 +807,7 @@ $result = $client->images->generate(
 
 Each result provides `data`, `usage`, and `http`. `usage->cost_usd` converts the reported `cost_in_usd_ticks` to US dollars, and `usage` is `null` when the API omits it.
 
-To store images in your own bucket instead of with SpaceXAI, pass `output.upload_urls`: signed URLs that accept an HTTP `PUT`, one per image. Each image is uploaded to its URL, and its `url` in the result is that upload URL. Uploads need the default `response_format` of `url`:
+To store images in your own bucket instead of with SpaceXSI, pass `output.upload_urls`: signed URLs that accept an HTTP `PUT`, one per image. Each image is uploaded to its URL, and its `url` in the result is that upload URL. Uploads need the default `response_format` of `url`:
 
 ```php
 $result = $client->images->generate([
@@ -807,7 +827,7 @@ foreach ($result->data as $image) {
 }
 ```
 
-Each upload's `Content-Type` is the image's `mime_type`, which is `image/jpeg` unless the requested quality produces PNG, so sign the URLs for that type or without a `Content-Type` constraint.
+Each upload's `Content-Type` is the image's `mime_type`, which is `image/jpeg` unless the requested quality produces PNG, so sign the URLs for that type or without a `Content-Type` constraint. Uploads to Azure Blob SAS URLs also send `x-ms-blob-type: BlockBlob`.
 
 ## Image editing
 
@@ -871,7 +891,9 @@ if ($result->status === 'done') {
 
 `wait()` returns once the status is `done`, `failed`, or `expired`. A failed result includes an `error` with a `code` and `message`. If `video.respect_moderation` is `false`, the video did not pass moderation and has no URL. Video URLs are temporary, so download the file promptly.
 
-`wait()` polls every 5 seconds for up to 10 minutes. Pass `interval` and `timeout` in milliseconds to change this, and a `signal` to stop waiting. A timeout throws `TimeoutError`, so you can call `wait()` again. A timeout or an aborted signal leaves the job running: the video keeps generating and is billed when it finishes. The API has no way to cancel a video in this SDK version. To check once, call `$client->videos->get($requestId)`, which returns `status` `pending` until the video is ready.
+`wait()` polls every 5 seconds for up to 10 minutes. Pass `interval` and `timeout` in milliseconds to change this, and a `signal` to stop waiting. Both are capped at 24 hours, so a `timeout` of `INF` waits 24 hours. A `timeout` of `0` or less still expires at once, and an `interval` of `0` or less still polls again without a pause. A timeout throws `TimeoutError`, so you can call `wait()` again. A timeout or an aborted signal leaves the job running: the video keeps generating and is billed when it finishes. The API has no way to cancel a video in this SDK version. To check once, call `$client->videos->get($requestId)`, which returns `status` `pending` until the video is ready.
+
+Pass `output.upload_url` to store the finished video at a signed URL. The upload sends `Content-Type: video/mp4`, and an Azure Blob SAS URL also gets `x-ms-blob-type: BlockBlob`.
 
 To animate a still image, pass it as `image`, and pass `last_frame` to choose the frame the video ends on. `image`, `last_frame`, `reference_images`, and keyframe images accept a public URL, a base64 data URL, a Files API `file_id`, or a `Blob` or `File`, which the SDK converts to a data URL before sending the request:
 
@@ -1008,7 +1030,7 @@ foreach ($client->batches->results($batch->batch_id) as $row) {
 }
 ```
 
-`wait()` polls every 5 seconds and throws `TimeoutError` after 24 hours. Pass `interval`, `timeout`, or `signal` to change that. A batch created from `input_file_id` has no requests until it has loaded the file, so `wait()` keeps polling a batch without requests until requests arrive, or until the batch is cancelled or expires. Results are available as soon as each request finishes, so you can read them before the whole batch completes. Use `$client->batches->requests->list()` to check the state of individual requests, `$client->batches->list()` to list your team's batches, and `$client->batches->cancel()` to stop the remaining requests. Finished results stay available after cancelling.
+`wait()` polls every 5 seconds and throws `TimeoutError` after 24 hours. Pass `interval`, `timeout`, or `signal` to change that. `interval` and `timeout` are capped at 24 hours, so a longer `timeout`, such as `INF`, also throws after 24 hours. A `timeout` of `0` or less still expires at once. Call `wait()` again to keep waiting. A batch created from `input_file_id` has no requests until it has loaded the file, so `wait()` keeps polling a batch without requests until requests arrive, or until the batch is cancelled or expires. Results are available as soon as each request finishes, so you can read them before the whole batch completes. Use `$client->batches->requests->list()` to check the state of individual requests, `$client->batches->list()` to list your team's batches, and `$client->batches->cancel()` to stop the remaining requests. Finished results stay available after cancelling.
 
 ## Voice
 
@@ -1067,7 +1089,7 @@ echo $transcript->text;
 
 `format` set to `true` writes spoken numbers, currencies, and units in written form, and requires `language`. Word-level timings are in `$transcript->words`.
 
-With `diarize` set to `true`, each word also has a `speaker`, and the API takes the audio format from the file name. A `File` sends its own name. The SDK names a `Blob` after its MIME type, such as `audio.mp3` for `audio/mpeg`, and a `Blob` without one after the format its first bytes show: MP3, AAC, WAV, FLAC, Ogg, Opus, M4A, MP4, Matroska, or WebM. For a file in another format, give the `Blob` a `type` when you create it. `voice->custom->create()` names its upload the same way. `voice->list()` and `voice->get()` include `gender` when the API sends it.
+With `diarize` set to `true`, each word also has a `speaker`, and the API takes the audio format from the file name. A `File` sends its own name. The SDK names a `Blob` after its MIME type, such as `audio.mp3` for `audio/mpeg`, and a `Blob` without one after the format its first bytes show: MP3, AAC, WAV, FLAC, Ogg, Opus, M4A, MP4, Matroska, WebM, AVI, or MOV. `video/x-msvideo`, `video/avi`, and `video/vnd.avi` are named `audio.avi`, and `video/quicktime` is named `audio.mov`. For a file in another format, give the `Blob` a `type` when you create it. `voice->custom->create()` names its upload the same way. `voice->list()` and `voice->get()` include `gender` when the API sends it. `audio_format` accepts `webm`, `avi`, and `mov` along with the earlier formats.
 
 Clone a voice from a reference clip of up to 120 seconds with `$client->voice->custom->create()`. Creating custom voices through the API requires an Enterprise plan:
 
@@ -1142,7 +1164,7 @@ foreach ($available->data as $availableModel) {
 $modelInfo = $client->models->get($model);
 ```
 
-`KNOWN_MODEL_IDS` is taken from the models known to the TypeScript SDK this port follows. See the [SpaceXAI model documentation](https://docs.x.ai/developers/models) for the current catalog.
+`KNOWN_MODEL_IDS` is taken from the models known to the TypeScript SDK this port follows. See the [SpaceXSI model documentation](https://docs.x.ai/developers/models) for the current catalog.
 
 Image generation models have their own catalog, which includes modalities, aliases, and pricing. `KNOWN_IMAGE_MODEL_IDS` lists the image model IDs known to this release:
 
@@ -1200,15 +1222,20 @@ $client->responses->delete($stored->id);
 
 ## Guidelines
 
-`guidelines` on `responses->create()` sets per-category instructions for model output. Each entry is `['type' => 'policy', 'category' => ..., 'behavior' => ...]`. `category` is `sexual`, `violence`, `self_harm`, `illicit`, or `profanity`. `behavior` is `decline` for any of those categories, or `offer_support` for `self_harm` only. Each category may appear at most once. Omit `guidelines` to leave them unset:
+`guidelines` on `responses->create()` sets per-category instructions for model output. Each entry is `['type' => 'policy', 'category' => ..., 'behavior' => ...]`. `type` must be `policy`, and each `category` may appear at most once. `category` is `nsfw`, `violence`, `profanity`, or `cyber`. `nsfw`, `violence`, and `profanity` accept `decline`. `cyber` accepts `allow`. The API rejects other pairs with `400`. `cyber` must be enabled for the API key, and the API answers `403` when it is not. A request whose guidelines cannot be applied, for example on a multi-agent model or with `stop`, fails with `400`. Omit `guidelines` to leave them unset.
+
+`sexual` is now `nsfw`. The API rejects `self_harm`, `illicit`, and `offer_support` with `422`.
+
+`temperature` above 1 is sampled at 1, and `top_p` above the model's default, 0.95 for Grok models, is sampled at that default. The response echoes the values the request sent. The SDK forwards both fields unchanged.
 
 ```php
 $response = $client->responses->create([
     'model' => 'grok-4.7',
     'input' => 'Hello',
     'guidelines' => [
+        ['type' => 'policy', 'category' => 'nsfw', 'behavior' => 'decline'],
         ['type' => 'policy', 'category' => 'violence', 'behavior' => 'decline'],
-        ['type' => 'policy', 'category' => 'self_harm', 'behavior' => 'offer_support'],
+        ['type' => 'policy', 'category' => 'cyber', 'behavior' => 'allow'],
     ],
 ]);
 ```
@@ -1246,7 +1273,7 @@ This works for `files->list()`, `batches->list()`, `batches->results()`, `batche
 Configure defaults on the client:
 
 ```php
-$client = new SpaceXAI([
+$client = new SpaceXSI([
     'timeout' => 60_000,
     'idleTimeout' => 30_000,
     'maxRetries' => 2,
@@ -1273,13 +1300,13 @@ $response = $client->responses->create(
 );
 ```
 
-`$controller->abort()` stops a request the next time the client checks the signal, which happens while the HTTP transfer is in progress. `timeout` is the overall deadline in milliseconds. The default timeout is 3,600,000 (one hour). The default idle timeout is 60,000.
+`$controller->abort()` stops a request the next time the client checks the signal, which happens while the HTTP transfer is in progress. `timeout` bounds one attempt from the request to the end of its body, and `idleTimeout` bounds the gap between two chunks of a body. Both are milliseconds. The default timeout is 3,600,000 (one hour) and the default idle timeout is 60,000. Both are capped at 24 hours: `0`, `INF`, or a longer value means 24 hours. `NAN` counts as `0`.
 
 Requests that generate content, such as `responses->create`, `images->generate`, and `images->edit`, retry only explicit `429` responses by default. Read-only requests may also retry transient HTTP failures. Retry delays honor `Retry-After` and otherwise use jittered exponential backoff, which starts at 1 second for a `429`.
 
-Set `retryBeforeOutput` to `true`, on the client or on one request, to also retry streamed `responses->create()` calls, including ones that omit `stream`, when they fail before the model produces any output: a `5xx` status, a dropped connection, or a stream error such as a `503` right after `response.created`. All retries of a call share `maxRetries`, so a call makes at most `maxRetries + 1` requests. Events from the failed attempt do not reach your listeners or loop, and every attempt sends the same `x-client-request-id`. Each retry starts a new response, and the API may still bill the failed attempt's input tokens, so this is off by default. Errors after output has started stay as they are, and so do `5xx` responses to requests with `stream` set to `false`, which can arrive after the model has finished.
+Set `retryBeforeOutput` to `true`, on the client or on one request, to also retry streamed `responses->create()` calls, including ones that omit `stream`, when they fail before the model produces any output: a `5xx` status, a dropped connection, including a drop after the `200` headers and before the first byte of the event stream, or a stream error such as a `503` right after `response.created`. All retries of a call share `maxRetries`, so a call makes at most `maxRetries + 1` requests. Events from the failed attempt do not reach your listeners or loop, and every attempt sends the same `x-client-request-id`. Each retry starts a new response, and the API may still bill the failed attempt's input tokens, so this is off by default. Errors after output has started stay as they are, and so do `5xx` responses to requests with `stream` set to `false`, which can arrive after the model has finished. An idle timeout, the attempt `timeout`, or a caller abort before the first byte still fails the call.
 
-When you leave out `stream`, `responses->create()` streams the response under the hood and returns the final response. Those requests apply `idleTimeout` only when you pass it on the request. Set `stream` to `false` to send a plain JSON request. An explicit stream uses the client idle timeout.
+When you leave out `stream`, `responses->create()` streams the response under the hood and returns the final response. Those requests do not use the client `idleTimeout`. They wait up to 24 hours between chunks unless you pass `idleTimeout` on the request. Set `stream` to `false` to send a plain JSON request. An explicit stream uses the client idle timeout, still capped at 24 hours.
 
 ## Errors
 
@@ -1316,7 +1343,7 @@ XAI_DEBUG=1 php app.php
 
 Authentication headers and common credential fields are redacted. Request bodies are omitted because prompts and tool outputs may contain sensitive data.
 
-Structured API failures expose `$error->type`, `$error->code`, and `$error->param` when the server returns them. The SpaceXAI request ID is also available at `$response->http->requestId` and `$error->requestId`. Include it when reporting an API problem.
+Structured API failures expose `$error->type`, `$error->code`, and `$error->param` when the server returns them. The SpaceXSI request ID is also available at `$response->http->requestId` and `$error->requestId`. Include it when reporting an API problem.
 
 Every request also sends an `x-client-request-id` header with a UUID generated by the SDK. The ID stays the same across retries and is available at `$response->http->clientRequestId` and `$error->clientRequestId`, even when a request fails before the API responds. To use your own ID, set `x-client-request-id` in the request `headers`.
 
@@ -1331,4 +1358,4 @@ composer test
 
 ## License
 
-Licensed under the [Apache License 2.0](./LICENSE). See [NOTICE](./NOTICE). This repository is an independent port of the SpaceXAI TypeScript SDK and is not an official xAI package.
+Licensed under the [Apache License 2.0](./LICENSE). See [NOTICE](./NOTICE). This repository is an independent port of the SpaceXSI TypeScript SDK and is not an official xAI package.

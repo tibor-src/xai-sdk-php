@@ -119,6 +119,12 @@ final class Transport
 
     public const DEFAULT_IDLE_TIMEOUT_MS = 60_000;
 
+    /**
+     * The longest a timeout, idle timeout, wait() timeout, or poll interval runs: 24 hours.
+     * It stays below 2^31 - 1 ms, the longest delay a JavaScript timer keeps before it overflows.
+     */
+    public const MAX_TIMEOUT_MS = 86_400_000;
+
     public const DEFAULT_MAX_RETRIES = 2;
 
     public const DEFAULT_MAX_RESPONSE_BODY_BYTES = 32 * 1024 * 1024;
@@ -210,9 +216,60 @@ final class Transport
         return $capped * (0.5 + $random * 0.5);
     }
 
+    /**
+     * Milliseconds to wait. `INF` and anything past `MAX_TIMEOUT_MS` give `MAX_TIMEOUT_MS`.
+     * A value that isn't positive, `NAN` included, gives 0.
+     */
+    public static function delayMs(int|float $ms): int
+    {
+        if (is_nan($ms) || $ms <= 0) {
+            return 0;
+        }
+
+        return (int) min($ms, self::MAX_TIMEOUT_MS);
+    }
+
+    /**
+     * Milliseconds for `timeout` or `idleTimeout`. A value that isn't positive means `MAX_TIMEOUT_MS`.
+     */
+    public static function limitMs(int|float $ms): int
+    {
+        if (is_nan($ms) || $ms <= 0) {
+            return self::MAX_TIMEOUT_MS;
+        }
+
+        return self::delayMs($ms);
+    }
+
+    public static function numericMs(mixed $value): int|float|null
+    {
+        if (is_int($value) || is_float($value)) {
+            return $value;
+        }
+
+        return null;
+    }
+
+    /** A provided number is capped with `delayMs`. Anything else keeps `$default`. */
+    public static function waitMillis(mixed $value, int $default): int
+    {
+        $numeric = self::numericMs($value);
+
+        return $numeric === null ? $default : self::delayMs($numeric);
+    }
+
+    /** A provided number is capped with `limitMs`. Anything else keeps `$default`. */
+    public static function attemptMillis(mixed $value, int $default): int
+    {
+        $numeric = self::numericMs($value);
+
+        return $numeric === null ? $default : self::limitMs($numeric);
+    }
+
     public static function sleepMs(float $ms, ?AbortSignal $signal): void
     {
-        if ($ms <= 0) {
+        $ms = self::delayMs($ms);
+        if ($ms === 0) {
             return;
         }
         $end = hrtime(true) + (int) ($ms * 1_000_000);
@@ -253,7 +310,7 @@ final class Transport
      *   opts?: array<string, mixed>
      * } $request
      */
-    public static function send(SpaceXAI $client, array $request): SendResult
+    public static function send(SpaceXSI $client, array $request): SendResult
     {
         $clientRequestId = self::clientRequestId($client, $request['opts'] ?? []);
         try {
@@ -265,7 +322,8 @@ final class Transport
 
     public static function readOnce(ByteSource $source, int $idleTimeoutMs, ?AbortSignal $signal, ?string $requestId): ?string
     {
-        $idleDeadline = $idleTimeoutMs > 0 ? hrtime(true) + $idleTimeoutMs * 1_000_000 : null;
+        $idleTimeoutMs = self::limitMs($idleTimeoutMs);
+        $idleDeadline = hrtime(true) + $idleTimeoutMs * 1_000_000;
         while (true) {
             if ($signal?->isAborted()) {
                 $source->cancel();
@@ -301,12 +359,12 @@ final class Transport
     }
 
     /** @param array<string, mixed> $request */
-    private static function sendWithRetries(SpaceXAI $client, array $request, string $clientRequestId): SendResult
+    private static function sendWithRetries(SpaceXSI $client, array $request, string $clientRequestId): SendResult
     {
         $opts = $request['opts'] ?? [];
-        $timeout = $opts['timeout'] ?? $client->timeout;
+        $timeout = self::attemptMillis($opts['timeout'] ?? null, $client->timeout);
         $budget = $request['retryBudget'] ?? new RetryBudget($opts['maxRetries'] ?? $client->maxRetries);
-        $idleTimeout = $opts['idleTimeout'] ?? $client->idleTimeout;
+        $idleTimeout = self::attemptMillis($opts['idleTimeout'] ?? null, $client->idleTimeout);
         $maxResponseBodyBytes = $opts['maxResponseBodyBytes'] ?? $client->maxResponseBodyBytes;
         $method = $request['method'];
         $hasBody = array_key_exists('body', $request) && $method !== 'GET' && $method !== 'HEAD';
@@ -333,11 +391,8 @@ final class Transport
 
         while (true) {
             $headers = self::buildHeaders($client, $opts, $accept, is_string($body), $clientRequestId, $body instanceof FormData ? $body : null);
-            $timeoutSignal = null;
-            if (is_int($timeout) && $timeout > 0) {
-                $timeoutSignal = new AbortSignal();
-                $timeoutSignal->deadline = microtime(true) + ($timeout / 1000);
-            }
+            $timeoutSignal = new AbortSignal();
+            $timeoutSignal->deadline = microtime(true) + ($timeout / 1000);
             $signal = AbortSignal::any([$userSignal, $timeoutSignal]);
             if ($signal?->isAborted()) {
                 throw errorFromAbort($signal, $lastRequestId);
@@ -404,14 +459,24 @@ final class Transport
                             'requestId' => $lastRequestId,
                         ]);
                     }
-                    if ($response->body === null || in_array($response->status, [204, 205, 304], true)) {
-                        if ($binary) {
-                            return new SendResult($response, $http, null, null, false);
-                        }
-                        throw new APIConnectionError('SSE response had no body', ['requestId' => $lastRequestId]);
+                    if ($binary && ($response->body === null || in_array($response->status, [204, 205, 304], true))) {
+                        return new SendResult($response, $http, null, null, false);
                     }
-                    $peeked = self::peekFirstChunk($response->body, $idleTimeout, $signal, $lastRequestId);
+                    if ($response->body === null || in_array($response->status, [204, 205, 304], true)) {
+                        $peeked = [
+                            'sawByte' => false,
+                            'stream' => null,
+                            'error' => new APIConnectionError('SSE response had no body', ['requestId' => $lastRequestId]),
+                        ];
+                    } else {
+                        $peeked = self::peekFirstChunk($response->body, $idleTimeout, $signal, $lastRequestId);
+                    }
                     if ($peeked['error'] instanceof APIError && ! $peeked['sawByte']) {
+                        // Nothing reached us, so for retryBeforeOutput a dropped connection here is like one before the headers.
+                        if (! $signal?->isAborted() && self::canRetryBeforeFirstByte($request, $budget, $peeked['error'])) {
+                            self::sleepMs(self::retryDelayMs($budget->spend(), null), $userSignal);
+                            continue;
+                        }
                         throw $peeked['error'];
                     }
                     if (! $peeked['stream'] instanceof IdleStream) {
@@ -456,7 +521,7 @@ final class Transport
     }
 
     /** @param array<string, mixed> $opts */
-    private static function clientRequestId(SpaceXAI $client, array $opts): string
+    private static function clientRequestId(SpaceXSI $client, array $opts): string
     {
         $headers = self::callerHeaders($client, $opts);
 
@@ -464,7 +529,7 @@ final class Transport
     }
 
     /** @param array<string, mixed> $opts */
-    private static function callerHeaders(SpaceXAI $client, array $opts): HeaderBag
+    private static function callerHeaders(SpaceXSI $client, array $opts): HeaderBag
     {
         $headers = HeaderBag::from($client->defaultHeaders);
         if (isset($opts['headers'])) {
@@ -481,7 +546,7 @@ final class Transport
 
     /** @param array<string, mixed> $opts */
     private static function buildHeaders(
-        SpaceXAI $client,
+        SpaceXSI $client,
         array $opts,
         string $accept,
         bool $jsonBody,
@@ -589,6 +654,12 @@ final class Transport
         }
 
         return new HttpResponse($session->status, $session->headers, $session->statusText, $session);
+    }
+
+    /** A stream that sent a 200 but no bytes failed before any output, so retryBeforeOutput covers it like a failed connect. */
+    private static function canRetryBeforeFirstByte(array $request, RetryBudget $budget, APIError $error): bool
+    {
+        return (bool) ($request['retryServerErrors'] ?? false) && $budget->canRetry() && $error->name === 'APIConnectionError';
     }
 
     private static function isReadOnly(string $method): bool
