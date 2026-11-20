@@ -10,8 +10,12 @@ final class Sse
 {
     private const DONE = '[DONE]';
 
-    /** A blank line ends an event, so a delimiter is at most four characters, as in `\r\n\r\n`. */
-    private const EVENT_DELIMITER = '/(?:\r\n|\r|\n)(?:\r\n|\r|\n)/';
+    /**
+     * A blank line ends an event, so a delimiter is at most four characters, as in `\r\n\r\n`.
+     * A bare `\r` counts as a line break only when no `\n` follows it; otherwise the pattern could
+     * read the single line break `\r\n` as `\r` then `\n` and split one event's fields apart.
+     */
+    private const EVENT_DELIMITER = '/(?:\r\n|\n|\r(?!\n))(?:\r\n|\n|\r(?!\n))/';
 
     /**
      * @param int|null $maxEventChars Longest event in characters. Null uses the 32 MiB JSON body limit. 0 turns the limit off.

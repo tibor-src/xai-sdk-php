@@ -1,6 +1,6 @@
 # tibor-src/xai-sdk-php
 
-Unofficial PHP port of the experimental [SpaceXSI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.8).
+Unofficial PHP port of the experimental [SpaceXSI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.9).
 
 This package is not published or maintained by xAI. It follows the TypeScript client's resources, request defaults, and error types. This guide follows the [TypeScript SDK README](https://github.com/xai-org/xai-sdk-ts/blob/main/README.md), with the examples written for PHP. Method calls return their results directly.
 
@@ -1166,7 +1166,7 @@ $modelInfo = $client->models->get($model);
 
 `KNOWN_MODEL_IDS` is taken from the models known to the TypeScript SDK this port follows. See the [SpaceXSI model documentation](https://docs.x.ai/developers/models) for the current catalog.
 
-Image generation models have their own catalog, which includes modalities, aliases, and pricing. `KNOWN_IMAGE_MODEL_IDS` lists the image model IDs known to this release:
+Image generation models have their own catalog, which includes modalities, aliases, and pricing. `KNOWN_IMAGE_MODEL_IDS` lists `grok-imagine-image` and `grok-imagine-image-2.0`. `grok-imagine-image-quality` was retired on November 2, 2026. Any other string is still accepted as an image model id. Use `grok-imagine-image-2.0` for new work:
 
 ```php
 $imageModels = $client->models->image->list();

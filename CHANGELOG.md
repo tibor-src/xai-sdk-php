@@ -2,6 +2,16 @@
 
 All notable changes to this PHP port of the SpaceXSI TypeScript SDK are documented here. Version numbers follow `@xai-official/sdk`.
 
+## [0.2.9] - 2026-11-17
+
+### Changed
+
+- Removed the retired `grok-imagine-image-quality` id from `KNOWN_IMAGE_MODEL_IDS`. The public models catalog no longer lists it after its November 2, 2026 retirement. Any other string is still accepted as an image model id, so existing calls run as before. Use `grok-imagine-image-2.0` for new work.
+
+### Fixed
+
+- Streaming over SSE keeps the fields of one event together when the server ends lines with `\r\n`. A single `\r\n` was read as a blank line, so `event:` was split from its `data:` (the event name was dropped from `type`) and a `data:` value spread over several lines was parsed line by line as unknown events. Bare `\r` and `\n` line endings are unchanged.
+
 ## [0.2.8] - 2026-11-03
 
 ### Added

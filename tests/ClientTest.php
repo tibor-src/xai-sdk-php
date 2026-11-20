@@ -57,8 +57,8 @@ it('defaults store to false and streams a create that omits stream', function ()
     expect($captured->requests[0]->json()['include'])->toBe(['reasoning.encrypted_content']);
     expect($captured->requests[0]->json()['stream'])->toBeTrue();
     expect($captured->requests[0]->headers->get('accept'))->toBe('text/event-stream');
-    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.8 (php)');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.8');
+    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.9 (php)');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.9');
     expect($captured->requests[0]->headers->get('authorization'))->toBe('Bearer k');
 });
 
@@ -118,7 +118,7 @@ it('keeps a caller user agent and overwrites sdk attribution', function () {
     ]);
 
     expect($captured->requests[0]->headers->get('user-agent'))->toBe('curl/8');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.8');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.9');
     expect($captured->requests[0]->headers->get('xai-sdk-language'))->toBe('php/' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION);
 });
 
@@ -759,6 +759,48 @@ it('parses a stream event larger than 1 MiB', function () {
     expect($events)->toBe([$event]);
 });
 
+it('keeps CRLF fields of one event together', function () {
+    $raw = implode('', [
+        "event: response.created\r\ndata: {\"response\":{\"id\":\"r1\"}}\r\n\r\n",
+        "id: 7\r\nevent: response.output_text.delta\r\ndata: {\"delta\":\"hi\"}\r\n\r\n",
+        "data: {\"type\":\"response.completed\",\r\ndata: \"response\":{\"id\":\"r1\"}}\r\n\r\n",
+    ]);
+
+    expect(sseEvents($raw))->toBe([
+        ['response' => ['id' => 'r1'], 'type' => 'response.created'],
+        ['delta' => 'hi', 'type' => 'response.output_text.delta'],
+        ['type' => 'response.completed', 'response' => ['id' => 'r1']],
+    ]);
+});
+
+it('keeps CRLF fields together when the chunks split a CRLF', function () {
+    $raw = "event: response.output_text.delta\r\ndata: {\"delta\":\"a\"}\r\n\r\n"
+        . "data: {\"type\":\"ping\"}\r\n\r\n";
+
+    foreach ([1, 2, 3, 5, 7] as $size) {
+        expect(sseEvents($raw, $size))->toBe([
+            ['delta' => 'a', 'type' => 'response.output_text.delta'],
+            ['type' => 'ping'],
+        ]);
+    }
+});
+
+it('treats CR followed by CRLF and LF followed by CRLF as a blank line', function () {
+    $raw = "data: {\"type\":\"ping\"}\r\r\ndata: {\"type\":\"ping\",\"n\":2}\n\r\n";
+
+    expect(sseEvents($raw))->toBe([
+        ['type' => 'ping'],
+        ['type' => 'ping', 'n' => 2],
+    ]);
+});
+
+it('drops the retired grok-imagine-image-quality id', function () {
+    expect(\TiborSrc\XaiSdkPhp\KNOWN_IMAGE_MODEL_IDS)->toBe([
+        'grok-imagine-image',
+        'grok-imagine-image-2.0',
+    ]);
+});
+
 it('finds a blank line split across chunks and honors maxEventChars', function () {
     $raw = "data: {\"type\":\"ping\"}\r\n\r\ndata: {\"type\":\"response.completed\"}\n\n";
     $pieces = ["data: {\"type\":\"ping\"}\r", "\n\r", "\ndata: {\"type\":\"response.completed\"}\n", "\n"];
@@ -1069,6 +1111,22 @@ it('posts grok-voice-3.0 and grok-voice-2.0 on a client secret session', functio
 });
 
 /** @param array<string, mixed> $extra */
+/**
+ * @return list<mixed>
+ */
+function sseEvents(string $raw, int $chunkSize = 0): array
+{
+    $pieces = $chunkSize > 0 ? str_split($raw, $chunkSize) : [$raw];
+    $chunks = array_map(static fn (string $piece): array => [$piece, 0], $pieces);
+    $body = new IdleStream(new ChunkSource($chunks), 0, null, null);
+    $events = [];
+    foreach (Sse::parse($body) as $parsed) {
+        $events[] = $parsed;
+    }
+
+    return $events;
+}
+
 function batchBody(int $pending, int $requests, array $extra = []): array
 {
     return array_merge([

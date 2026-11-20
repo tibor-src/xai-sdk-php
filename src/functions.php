@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace TiborSrc\XaiSdkPhp;
 
-const SDK_VERSION = '0.2.8';
+const SDK_VERSION = '0.2.9';
 const SDK_USER_AGENT = 'xai-sdk/' . SDK_VERSION . ' (php)';
 
 const ENCRYPTED_REASONING = 'reasoning.encrypted_content';
@@ -99,7 +99,6 @@ const KNOWN_MODEL_IDS = [
 const KNOWN_IMAGE_MODEL_IDS = [
     'grok-imagine-image',
     'grok-imagine-image-2.0',
-    'grok-imagine-image-quality',
 ];
 
 /** @var list<string> */
