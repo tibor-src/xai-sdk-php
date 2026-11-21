@@ -2,6 +2,14 @@
 
 All notable changes to this PHP port of the SpaceXSI TypeScript SDK are documented here. Version numbers follow `@xai-official/sdk`.
 
+## [0.2.10] - 2026-11-20
+
+### Changed
+
+- `SDK_VERSION` is `0.2.10`, matching `@xai-official/sdk` 0.2.10. The `user-agent` and `xai-sdk-version` request headers follow that version.
+
+The TypeScript release also publishes the same build to npm as `@grok/sdk` (release workflow, artifact rename, and package smoke under both names) and rewords the Node.js version error so it no longer names `@xai-official/sdk`. This port has one Composer package, `tibor-src/xai-sdk-php`, and no runtime PHP version error that names the package. Composer enforces `php: >=8.2` before the library loads. Those changes do not apply here.
+
 ## [0.2.9] - 2026-11-17
 
 ### Changed

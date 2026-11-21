@@ -1,6 +1,6 @@
 # tibor-src/xai-sdk-php
 
-Unofficial PHP port of the experimental [SpaceXSI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.9).
+Unofficial PHP port of the experimental [SpaceXSI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.10).
 
 This package is not published or maintained by xAI. It follows the TypeScript client's resources, request defaults, and error types. This guide follows the [TypeScript SDK README](https://github.com/xai-org/xai-sdk-ts/blob/main/README.md), with the examples written for PHP. Method calls return their results directly.
 
