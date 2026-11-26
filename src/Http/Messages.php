@@ -112,6 +112,9 @@ final class ChunkSource implements ByteSource
 
     public function cancel(): void
     {
+        if ($this->cancelled) {
+            return;
+        }
         $this->cancelled = true;
         if ($this->onCancel instanceof \Closure) {
             ($this->onCancel)();

@@ -56,6 +56,13 @@ final class IdleStream
 
     private bool $finalized = false;
 
+    private ?AbortSignal $closeSignal = null;
+
+    public function attachAbortSignal(AbortSignal $signal): void
+    {
+        $this->closeSignal = $signal;
+    }
+
     public function read(): ?string
     {
         if ($this->prefix !== []) {
@@ -67,8 +74,14 @@ final class IdleStream
             return null;
         }
         try {
-            $chunk = Transport::readOnce($this->source, $this->idleTimeoutMs, $this->signal, $this->requestId);
+            $chunk = Transport::readOnce(
+                $this->source,
+                $this->idleTimeoutMs,
+                AbortSignal::any([$this->signal, $this->closeSignal]),
+                $this->requestId,
+            );
         } catch (\Throwable $exception) {
+            $this->ended = true;
             $this->source->cancel();
             $this->finalize();
             throw $exception;
@@ -83,6 +96,11 @@ final class IdleStream
 
     public function cancel(): void
     {
+        if ($this->ended) {
+            $this->finalize();
+
+            return;
+        }
         $this->ended = true;
         $this->source->cancel();
         $this->finalize();

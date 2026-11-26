@@ -210,6 +210,7 @@ final class BatchRequests
      */
     public function add(string $batchId, array $body, array $opts = []): Record
     {
+        $path = '/batches/' . Wire::encodePath($batchId) . '/requests';
         $signal = $opts['signal'] ?? null;
         $abort = $signal instanceof AbortSignal ? $signal : null;
         $requests = [];
@@ -219,7 +220,7 @@ final class BatchRequests
         $body['batch_requests'] = $requests;
         $result = Transport::send($this->client, [
             'method' => 'POST',
-            'path' => '/batches/' . Wire::encodePath($batchId) . '/requests',
+            'path' => $path,
             'body' => $body,
             'opts' => $opts,
         ]);

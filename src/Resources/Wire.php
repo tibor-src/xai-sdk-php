@@ -47,12 +47,38 @@ final class Wire
         return true;
     }
 
-    public static function encodePath(string $value): string
+    /**
+     * Encodes a value for use as a single URL path segment, rejecting values that would not address
+     * their own resource. An empty id drops the segment, and `.` or `..` are resolved as dot segments,
+     * so e.g. `files->delete('..')` would hit `DELETE /v1/`. `%2E%2E` collapses too, so encoding alone
+     * cannot fix this.
+     *
+     * Resource methods type-hint `string`, so PHP rejects an array or object before this runs. Direct
+     * callers can pass any value, and `['..']` is not `'..'` but would be encoded as `..` if it were
+     * stringified. Anything other than a string or number is rejected, and the check runs on
+     * `(string) $value`, which is what gets encoded.
+     */
+    public static function encodePath(mixed $value): string
     {
+        if (! is_string($value) && ! is_int($value) && ! is_float($value)) {
+            $got = match (true) {
+                $value === null => 'null',
+                is_array($value) => 'array',
+                is_bool($value) => 'boolean',
+                is_object($value) => 'object',
+                default => get_debug_type($value),
+            };
+            throw new \TypeError('Invalid path parameter: expected a string or number, got ' . $got);
+        }
+        $segment = (string) $value;
+        if ($segment === '' || $segment === '.' || $segment === '..') {
+            throw new \TypeError('Invalid path parameter: ' . json_encode($segment, JSON_THROW_ON_ERROR));
+        }
+
         return str_replace(
             ['%21', '%27', '%28', '%29', '%2A'],
             ['!', "'", '(', ')', '*'],
-            rawurlencode($value),
+            rawurlencode($segment),
         );
     }
 }

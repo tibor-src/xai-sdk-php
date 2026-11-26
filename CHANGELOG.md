@@ -2,6 +2,24 @@
 
 All notable changes to this PHP port of the SpaceXSI TypeScript SDK are documented here. Version numbers follow `@xai-official/sdk`.
 
+## [0.2.11] - 2026-11-25
+
+### Added
+
+- `voice->transcribe()` takes `redact` and `show_redacted_text`. `redact` is a list of groups (`pii`, `pci`, `phi`) or single types such as `ssn`, each sent as its own `redact` field, and the API replaces matching values in `text`, `words`, and `channels` with tags such as `[NAME_1]`. With `show_redacted_text` set to `true`, each redacted word has the original words in `redacted_text`. `KNOWN_TRANSCRIPTION_REDACTIONS` lists the groups this release names.
+
+### Changed
+
+- Removed the retired `grok-build-0.1` id from `KNOWN_MODEL_IDS`. It reached end of life on November 19, 2026, and the public models catalog no longer lists it. Any other string is still accepted as a model id, so existing calls run as before. The API no longer serves this model, so requests that name it will fail at runtime either way.
+- `SDK_VERSION` is `0.2.11`, matching `@xai-official/sdk` 0.2.11. The `user-agent` and `xai-sdk-version` request headers follow that version.
+
+### Fixed
+
+- Resource methods that take an id (`files`, `batches`, `models`, `responses`, `videos`, and `voice`) throw a `TypeError` for an empty id, `"."`, or `".."` instead of sending the request. The URL parser resolved these as dot segments, so a call like `files->delete('..')` was sent as `DELETE /v1/` and `files->get('')` went to `/v1/files/`. `Wire::encodePath()` also rejects a value that isn't a string or number. Resource method signatures stay `string`, so PHP already rejects an array or object before encoding. Other ids are encoded as before.
+- `responses->create()` without `stream`, and `$stream->done()` on a streaming response, return the completed response when the connection fails or is held open after the terminal event (`response.completed`, `response.failed`, or `response.incomplete`). They used to throw after a connection reset or a timeout in that window, and the caller lost a response that had already completed. The stream now ends at the terminal event: later events are not delivered, and an `error` event, an abort, or a timeout after the terminal event no longer fails the call. The SDK reads the rest of the body for up to 250 milliseconds so the connection can be reused.
+
+The TypeScript release also stops request timeout and idle timers from keeping a Node.js process alive on their own (`unref()`). PHP has no event loop, and curl timeouts do not keep a CLI process running after a request fails, so that change does not apply here.
+
 ## [0.2.10] - 2026-11-20
 
 ### Changed

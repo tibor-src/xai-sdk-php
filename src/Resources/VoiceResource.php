@@ -72,7 +72,13 @@ final class VoiceResource
         return Wire::withHttp($speech, $result->http);
     }
 
-    /** @param array<string, mixed> $body
+    /**
+     * `redact` is a list of groups (`pii`, `pci`, `phi`) or single types such as `ssn`, each sent as
+     * its own `redact` field. The API replaces matching values in `text`, `words`, and `channels`
+     * with tags such as `[NAME_1]`. With `show_redacted_text` set to true, each redacted word has
+     * the original words in `redacted_text`.
+     *
+     * @param array<string, mixed> $body
      * @param array<string, mixed> $opts
      */
     public function transcribe(array $body, array $opts = []): Record

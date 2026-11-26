@@ -27,6 +27,13 @@ final class ResponseStream implements \IteratorAggregate
     /** @var array<int, true> */
     private const SERVER_ERRORS = [500 => true, 502 => true, 503 => true, 504 => true, 529 => true];
 
+    /**
+     * How long the stream waits for the body to end after the terminal event. A body that is read to
+     * its end leaves the connection open for the next request. The wait is short, so a server that
+     * holds the socket open can't delay the response much.
+     */
+    public const STREAM_TAIL_GRACE_MS = 250;
+
     private HttpMeta $http;
 
     private ?IdleStream $body;
@@ -80,6 +87,9 @@ final class ResponseStream implements \IteratorAggregate
         $this->maxEventChars = $init['maxEventChars'] ?? Transport::DEFAULT_MAX_RESPONSE_BODY_BYTES;
         $this->jsonText = ($init['json'] ?? false) ? '' : null;
         $this->closeController = new AbortController();
+        if ($this->body instanceof IdleStream) {
+            $this->body->attachAbortSignal($this->closeController->signal);
+        }
     }
 
     public function http(): HttpMeta
@@ -260,6 +270,9 @@ final class ResponseStream implements \IteratorAggregate
                 $this->body = $next['body'];
                 $this->http = $next['http'];
                 $this->requestId = $next['http']->requestId;
+                if ($this->body instanceof IdleStream) {
+                    $this->body->attachAbortSignal($this->closeController->signal);
+                }
                 if (! $next['body'] instanceof IdleStream) {
                     $this->final = $this->terminal($next['payload'] ?? null);
                 }
@@ -293,6 +306,7 @@ final class ResponseStream implements \IteratorAggregate
     {
         $held = [];
         $holding = $canRetry;
+        $seenTerminal = false;
         try {
             foreach (Sse::parse($body, $this->closeController->signal, $this->maxEventChars) as $raw) {
                 $event = $this->normalize($raw);
@@ -314,8 +328,18 @@ final class ResponseStream implements \IteratorAggregate
                 }
                 $this->apply($event);
                 yield $event;
+                // The terminal event carries the whole response, so the stream ends here and nothing after it counts.
+                if (self::isTerminal($event)) {
+                    $seenTerminal = true;
+                    $this->drainTail($body);
+
+                    return;
+                }
             }
         } catch (\Throwable $exception) {
+            if ($seenTerminal) {
+                return;
+            }
             $error = errorFromUnknown($exception, $this->requestId);
             if ($holding && ! $this->closed && ! $this->signal?->isAborted() && self::isRetryableBeforeOutput($error)) {
                 $this->attemptFailure = $error;
@@ -328,6 +352,24 @@ final class ResponseStream implements \IteratorAggregate
             $this->attemptFailure = new APIConnectionError('Stream ended before any output', [
                 'requestId' => $this->requestId,
             ]);
+        }
+    }
+
+    /**
+     * Reads and discards what follows the terminal event, until the stream ends, so the connection can
+     * be reused. After STREAM_TAIL_GRACE_MS it stops and cancels the body instead. The response is
+     * already complete, so nothing read here is applied or yielded, and a connection error, abort, or
+     * timeout here is ignored.
+     */
+    private function drainTail(IdleStream $body): void
+    {
+        $this->closeController->signal->deadline = microtime(true) + (self::STREAM_TAIL_GRACE_MS / 1000);
+        try {
+            while ($body->read() !== null) {
+                // discarded
+            }
+        } catch (\Throwable) {
+            // the response is already complete
         }
     }
 
@@ -354,10 +396,9 @@ final class ResponseStream implements \IteratorAggregate
     /** @param array<string, mixed> $event */
     private function apply(array $event): void
     {
-        $type = $event['type'] ?? null;
-        if ($type === 'response.completed' || $type === 'response.failed' || $type === 'response.incomplete') {
+        if (self::isTerminal($event)) {
             $this->final = $this->terminal($event['response'] ?? null);
-        } elseif ($type === 'error' && ($event['error'] ?? null) instanceof APIError) {
+        } elseif (($event['type'] ?? null) === 'error' && ($event['error'] ?? null) instanceof APIError) {
             $this->error = $event['error'];
         }
     }
@@ -386,6 +427,13 @@ final class ResponseStream implements \IteratorAggregate
         $type = $event['type'] ?? null;
 
         return $type === 'ping' || $type === 'response.created' || $type === 'response.in_progress';
+    }
+
+    private static function isTerminal(array $event): bool
+    {
+        $type = $event['type'] ?? null;
+
+        return $type === 'response.completed' || $type === 'response.failed' || $type === 'response.incomplete';
     }
 
     private static function isRetryableBeforeOutput(APIError $error): bool

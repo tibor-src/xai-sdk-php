@@ -5,6 +5,7 @@ declare(strict_types=1);
 use TiborSrc\XaiSdkPhp\APIConnectionError;
 use TiborSrc\XaiSdkPhp\APIProtocolError;
 use TiborSrc\XaiSdkPhp\AuthenticationError;
+use TiborSrc\XaiSdkPhp\Http\AbortController;
 use TiborSrc\XaiSdkPhp\Http\Blob;
 use TiborSrc\XaiSdkPhp\Http\ChunkSource;
 use TiborSrc\XaiSdkPhp\Http\File;
@@ -14,6 +15,7 @@ use TiborSrc\XaiSdkPhp\Http\HttpResponse;
 use TiborSrc\XaiSdkPhp\IdleStream;
 use TiborSrc\XaiSdkPhp\ModelResponse;
 use TiborSrc\XaiSdkPhp\RateLimitError;
+use TiborSrc\XaiSdkPhp\Resources\Wire;
 use TiborSrc\XaiSdkPhp\SpaceXAI;
 use TiborSrc\XaiSdkPhp\SpaceXSI;
 use TiborSrc\XaiSdkPhp\Sse;
@@ -57,8 +59,8 @@ it('defaults store to false and streams a create that omits stream', function ()
     expect($captured->requests[0]->json()['include'])->toBe(['reasoning.encrypted_content']);
     expect($captured->requests[0]->json()['stream'])->toBeTrue();
     expect($captured->requests[0]->headers->get('accept'))->toBe('text/event-stream');
-    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.10 (php)');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.10');
+    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.11 (php)');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.11');
     expect($captured->requests[0]->headers->get('authorization'))->toBe('Bearer k');
 });
 
@@ -118,7 +120,7 @@ it('keeps a caller user agent and overwrites sdk attribution', function () {
     ]);
 
     expect($captured->requests[0]->headers->get('user-agent'))->toBe('curl/8');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.10');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.11');
     expect($captured->requests[0]->headers->get('xai-sdk-language'))->toBe('php/' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION);
 });
 
@@ -884,9 +886,11 @@ it('reads multi-agent encrypted reasoning larger than 1 MiB and limits each even
     expect($raised->output)->toHaveCount(2);
 });
 
-it('lists the model ids added in 0.2.3', function () {
+it('lists the model ids added in 0.2.3 and drops grok-build-0.1', function () {
     expect(\TiborSrc\XaiSdkPhp\KNOWN_MODEL_IDS)->toContain('grok-4.20-multi-agent');
+    expect(\TiborSrc\XaiSdkPhp\KNOWN_MODEL_IDS)->not->toContain('grok-build-0.1');
     expect(\TiborSrc\XaiSdkPhp\KNOWN_VIDEO_MODEL_IDS)->toContain('grok-imagine-video-1.5-lite');
+    expect(\TiborSrc\XaiSdkPhp\KNOWN_TRANSCRIPTION_REDACTIONS)->toBe(['pii', 'pci', 'phi']);
 });
 
 it('posts the 21:9 and 5:2 video aspect ratios unchanged', function () {
@@ -1110,6 +1114,283 @@ it('posts grok-voice-3.0 and grok-voice-2.0 on a client secret session', functio
     expect($captured->requests[1]->json())->toBe(['session' => ['model' => 'grok-voice-2.0']]);
 });
 
+it('sends each redact value as its own field and returns redacted_text on words', function () {
+    $redacted = [
+        'text' => 'My name is [NAME_1].',
+        'language' => 'en',
+        'duration' => 1.8,
+        'words' => [
+            ['text' => 'My', 'start' => 0.1, 'end' => 0.3],
+            ['text' => '[NAME_1]', 'start' => 1.1, 'end' => 1.6, 'redacted_text' => 'Ada Lovelace'],
+        ],
+    ];
+    [$client, $captured] = mockClient(fn () => jsonResponse($redacted));
+    $res = $client->voice->transcribe([
+        'url' => 'https://example.com/call.mp3',
+        'language' => 'en',
+        'redact' => ['pii', 'pci', 'bank_account'],
+        'show_redacted_text' => true,
+    ]);
+
+    $body = $captured->requests[0]->body;
+    expect($body)->toBeInstanceOf(FormData::class);
+    expect(array_map(
+        static fn ($part): array => [$part->name, $part->value],
+        $body->parts,
+    ))->toBe([
+        ['url', 'https://example.com/call.mp3'],
+        ['language', 'en'],
+        ['redact', 'pii'],
+        ['redact', 'pci'],
+        ['redact', 'bank_account'],
+        ['show_redacted_text', 'true'],
+    ]);
+    expect($res->text)->toBe('My name is [NAME_1].');
+    expect($res->words[1]['redacted_text'])->toBe('Ada Lovelace');
+});
+
+it('rejects path parameters that do not address their own segment', function () {
+    foreach (['', '.', '..'] as $bad) {
+        expect(fn () => Wire::encodePath($bad))
+            ->toThrow(TypeError::class, 'Invalid path parameter: ' . json_encode($bad));
+    }
+});
+
+it('rejects a path parameter that is not a string or number', function (mixed $bad, string $type) {
+    expect(fn () => Wire::encodePath($bad))
+        ->toThrow(TypeError::class, 'Invalid path parameter: expected a string or number, got ' . $type);
+})->with([
+    'array ..' => [['..'], 'array'],
+    'empty array' => [[], 'array'],
+    'object' => [(object) ['toString' => static fn (): string => '..'], 'object'],
+    'null' => [null, 'null'],
+    'true' => [true, 'boolean'],
+]);
+
+it('encodes an ordinary path id and a number', function () {
+    expect(Wire::encodePath('file_123'))->toBe('file_123');
+    expect(Wire::encodePath('a/b'))->toBe('a%2Fb');
+    expect(Wire::encodePath('a b#c'))->toBe('a%20b%23c');
+    expect(Wire::encodePath('...'))->toBe('...');
+    expect(Wire::encodePath('a..b'))->toBe('a..b');
+    expect(Wire::encodePath(42))->toBe('42');
+});
+
+it('throws a TypeError for a retargeting id without sending a request', function (callable $call) {
+    [$client, $captured] = mockClient(fn () => jsonResponse([]));
+    foreach (['', '.', '..'] as $bad) {
+        expect(fn () => $call($client, $bad))
+            ->toThrow(TypeError::class, 'Invalid path parameter: ' . json_encode($bad));
+    }
+    expect($captured->requests)->toHaveCount(0);
+})->with([
+    'files.get' => [static fn ($c, $id) => $c->files->get($id)],
+    'files.delete' => [static fn ($c, $id) => $c->files->delete($id)],
+    'files.content' => [static fn ($c, $id) => $c->files->content($id)],
+    'files.createPublicUrl' => [static fn ($c, $id) => $c->files->createPublicUrl($id)],
+    'files.revokePublicUrl' => [static fn ($c, $id) => $c->files->revokePublicUrl($id)],
+    'batches.get' => [static fn ($c, $id) => $c->batches->get($id)],
+    'batches.cancel' => [static fn ($c, $id) => $c->batches->cancel($id)],
+    'batches.results' => [static fn ($c, $id) => $c->batches->results($id)],
+    'batches.wait' => [static fn ($c, $id) => $c->batches->wait($id, ['interval' => 0, 'timeout' => 5_000])],
+    'batches.requests.add' => [static fn ($c, $id) => $c->batches->requests->add($id, ['batch_requests' => []])],
+    'batches.requests.list' => [static fn ($c, $id) => $c->batches->requests->list($id)],
+    'models.get' => [static fn ($c, $id) => $c->models->get($id)],
+    'models.language.get' => [static fn ($c, $id) => $c->models->language->get($id)],
+    'models.image.get' => [static fn ($c, $id) => $c->models->image->get($id)],
+    'models.video.get' => [static fn ($c, $id) => $c->models->video->get($id)],
+    'responses.get' => [static fn ($c, $id) => $c->responses->get($id)],
+    'responses.delete' => [static fn ($c, $id) => $c->responses->delete($id)],
+    'responses.inputItems.list' => [static fn ($c, $id) => $c->responses->inputItems->list($id)],
+    'videos.get' => [static fn ($c, $id) => $c->videos->get($id)],
+    'videos.wait' => [static fn ($c, $id) => $c->videos->wait($id, ['interval' => 0, 'timeout' => 5_000])],
+    'voice.get' => [static fn ($c, $id) => $c->voice->get($id)],
+    'voice.custom.get' => [static fn ($c, $id) => $c->voice->custom->get($id)],
+    'voice.custom.update' => [static fn ($c, $id) => $c->voice->custom->update($id, [])],
+    'voice.custom.delete' => [static fn ($c, $id) => $c->voice->custom->delete($id)],
+    'voice.custom.getAudio' => [static fn ($c, $id) => $c->voice->custom->getAudio($id)],
+]);
+
+it('rejects a bad batch request id before it inlines any image', function () {
+    [$client, $captured] = mockClient(fn () => jsonResponse([]));
+    $image = new Blob('png-bytes', 'image/png');
+    $add = static fn (string $id) => $client->batches->requests->add($id, [
+        'batch_requests' => [
+            [
+                'batch_request' => [
+                    'responses' => [
+                        'model' => 'grok-4.3',
+                        'input' => [['role' => 'user', 'content' => [['type' => 'input_image', 'image' => $image]]]],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    expect(fn () => $add('..'))->toThrow(TypeError::class, 'Invalid path parameter: ".."');
+    expect($captured->requests)->toHaveCount(0);
+
+    $add('batch_1');
+    expect($captured->requests)->toHaveCount(1);
+    expect($captured->requests[0]->json()['batch_requests'][0]['batch_request']['responses']['input'][0]['content'][0])
+        ->toHaveKey('image_url');
+});
+
+it('keeps the completed response when the connection fails after the terminal event', function (array $terminal) {
+    $bytes = sseEventBytes([$terminal]);
+    [$client] = mockClient(fn () => new HttpResponse(
+        200,
+        sseStreamHeaders(),
+        '',
+        new ChunkSource([[$bytes, 0]], null, false, new RuntimeException('terminated: other side closed')),
+    ));
+    $response = $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+    ]);
+    expect($response->status)->toBe($terminal['response']['status']);
+    expect($response->id)->toBe('resp_123');
+
+    [$streamClient] = mockClient(fn () => new HttpResponse(
+        200,
+        sseStreamHeaders(),
+        '',
+        new ChunkSource([[$bytes, 0]], null, false, new RuntimeException('terminated: other side closed')),
+    ));
+    $stream = $streamClient->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+        'stream' => true,
+    ]);
+    $types = [];
+    foreach ($stream as $event) {
+        $types[] = $event['type'];
+    }
+    expect($types)->toBe([$terminal['type']]);
+    expect($stream->done()->status)->toBe($terminal['response']['status']);
+})->with([
+    'completed' => [[
+        'type' => 'response.completed',
+        'response' => completedResponse(),
+    ]],
+    'failed' => [[
+        'type' => 'response.failed',
+        'response' => completedResponse(['status' => 'failed', 'output' => [], 'error' => ['code' => 'server_error', 'message' => 'boom']]),
+    ]],
+    'incomplete' => [[
+        'type' => 'response.incomplete',
+        'response' => completedResponse(['status' => 'incomplete', 'incomplete_details' => ['reason' => 'max_output_tokens']]),
+    ]],
+]);
+
+it('does not deliver later events after the terminal event', function () {
+    [$client] = mockClient(fn () => sseResponse([
+        ['type' => 'response.output_text.delta', 'output_index' => 0, 'content_index' => 0, 'delta' => 'Hello'],
+        ['type' => 'response.completed', 'response' => completedResponse()],
+        ['type' => 'response.output_text.delta', 'output_index' => 0, 'content_index' => 0, 'delta' => ' again'],
+        ['type' => 'error', 'code' => 529, 'message' => 'overloaded'],
+    ]));
+    $stream = $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+        'stream' => true,
+    ]);
+    $heard = [];
+    $stream->on('text', function (string $text) use (&$heard): void {
+        $heard[] = $text;
+    })->on('error', function () use (&$heard): void {
+        $heard[] = 'error';
+    });
+    $types = [];
+    foreach ($stream as $event) {
+        $types[] = $event['type'];
+    }
+    expect($types)->toBe(['response.output_text.delta', 'response.completed']);
+    expect($heard)->toBe(['Hello']);
+    expect($stream->done()->status)->toBe('completed');
+});
+
+it('reads a tail that arrives a few milliseconds later to the end of the body', function () {
+    $state = (object) ['cancelled' => false];
+    $terminal = sseEventBytes([['type' => 'response.completed', 'response' => completedResponse()]]);
+    [$client] = mockClient(function () use ($state, $terminal) {
+        return new HttpResponse(
+            200,
+            sseStreamHeaders(),
+            '',
+            new ChunkSource(
+                [[$terminal, 0], ["data: [DONE]\n\n", 5]],
+                static function () use ($state): void {
+                    $state->cancelled = true;
+                },
+            ),
+        );
+    });
+    $response = $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+    ]);
+    expect($response->status)->toBe('completed');
+    expect($state->cancelled)->toBeFalse();
+});
+
+it('cancels a body that is held open after the terminal event', function () {
+    $state = (object) ['cancelled' => false];
+    $terminal = sseEventBytes([['type' => 'response.completed', 'response' => completedResponse()]]);
+    [$client] = mockClient(function () use ($state, $terminal) {
+        return new HttpResponse(
+            200,
+            sseStreamHeaders(),
+            '',
+            new ChunkSource(
+                [[$terminal, 0]],
+                static function () use ($state): void {
+                    $state->cancelled = true;
+                },
+                true,
+            ),
+        );
+    });
+    $response = $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+    ]);
+    expect($response->status)->toBe('completed');
+    expect($state->cancelled)->toBeTrue();
+});
+
+it('ignores the caller abort while it reads the rest of the body', function () {
+    $ac = new AbortController();
+    $ac->signal->deadline = microtime(true) + 0.08;
+    $terminal = sseEventBytes([['type' => 'response.completed', 'response' => completedResponse()]]);
+    [$client] = mockClient(fn () => new HttpResponse(
+        200,
+        sseStreamHeaders(),
+        '',
+        new ChunkSource([[$terminal, 0]], null, true),
+    ));
+    $response = $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+    ], ['signal' => $ac->signal]);
+    expect($response->status)->toBe('completed');
+});
+
+it('ignores a request timeout while it reads the rest of the body', function () {
+    $terminal = sseEventBytes([['type' => 'response.completed', 'response' => completedResponse()]]);
+    [$client] = mockClient(fn () => new HttpResponse(
+        200,
+        sseStreamHeaders(),
+        '',
+        new ChunkSource([[$terminal, 0]], null, true),
+    ));
+    $response = $client->responses->create([
+        'model' => 'grok-4.6',
+        'input' => 'hi',
+    ], ['timeout' => 100]);
+    expect($response->status)->toBe('completed');
+});
+
 /** @param array<string, mixed> $extra */
 /**
  * @return list<mixed>
@@ -1143,4 +1424,22 @@ function formFilename(mixed $body): string
     preg_match('/filename="([^"]*)"/', $body->body(), $match);
 
     return $match[1];
+}
+
+function sseEventBytes(array $events): string
+{
+    $raw = '';
+    foreach ($events as $event) {
+        $raw .= 'data: ' . json_encode($event, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n\n";
+    }
+
+    return $raw;
+}
+
+function sseStreamHeaders(): HeaderBag
+{
+    return HeaderBag::from([
+        'content-type' => 'text/event-stream',
+        'x-request-id' => 'req_test',
+    ]);
 }

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace TiborSrc\XaiSdkPhp;
 
-const SDK_VERSION = '0.2.10';
+const SDK_VERSION = '0.2.11';
 const SDK_USER_AGENT = 'xai-sdk/' . SDK_VERSION . ' (php)';
 
 const ENCRYPTED_REASONING = 'reasoning.encrypted_content';
@@ -92,7 +92,6 @@ const KNOWN_MODEL_IDS = [
     'grok-4.5',
     'grok-4.6',
     'grok-4.7',
-    'grok-build-0.1',
 ];
 
 /** @var list<string> */
@@ -124,6 +123,18 @@ const KNOWN_VOICE_IDS = [
 const KNOWN_TRANSCRIPTION_MODEL_IDS = [
     'grok-voice-transcribe-2.0',
     'grok-voice-transcribe-1.0',
+];
+
+/**
+ * Redaction groups `voice->transcribe()` `redact` accepts. Any other string is still sent, such as a
+ * single type like `ssn` or `bank_account`.
+ *
+ * @var list<string>
+ */
+const KNOWN_TRANSCRIPTION_REDACTIONS = [
+    'pii',
+    'pci',
+    'phi',
 ];
 
 /**

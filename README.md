@@ -1,6 +1,6 @@
 # tibor-src/xai-sdk-php
 
-Unofficial PHP port of the experimental [SpaceXSI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.10).
+Unofficial PHP port of the experimental [SpaceXSI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) (`@xai-official/sdk` 0.2.11).
 
 This package is not published or maintained by xAI. It follows the TypeScript client's resources, request defaults, and error types. This guide follows the [TypeScript SDK README](https://github.com/xai-org/xai-sdk-ts/blob/main/README.md), with the examples written for PHP. Method calls return their results directly.
 
@@ -1090,6 +1090,23 @@ echo $transcript->text;
 `format` set to `true` writes spoken numbers, currencies, and units in written form, and requires `language`. Word-level timings are in `$transcript->words`.
 
 With `diarize` set to `true`, each word also has a `speaker`, and the API takes the audio format from the file name. A `File` sends its own name. The SDK names a `Blob` after its MIME type, such as `audio.mp3` for `audio/mpeg`, and a `Blob` without one after the format its first bytes show: MP3, AAC, WAV, FLAC, Ogg, Opus, M4A, MP4, Matroska, WebM, AVI, or MOV. `video/x-msvideo`, `video/avi`, and `video/vnd.avi` are named `audio.avi`, and `video/quicktime` is named `audio.mov`. For a file in another format, give the `Blob` a `type` when you create it. `voice->custom->create()` names its upload the same way. `voice->list()` and `voice->get()` include `gender` when the API sends it. `audio_format` accepts `webm`, `avi`, and `mov` along with the earlier formats.
+
+To replace sensitive values with tags such as `[NAME_1]`, pass `redact` with one or more groups (`pii`, `pci`, `phi`) or single types such as `ssn`. Each value is sent as its own `redact` field. Set `show_redacted_text` to `true` to get the original words back on each redacted word as `redacted_text`:
+
+```php
+use TiborSrc\XaiSdkPhp\Http\Blob;
+
+$redacted = $client->voice->transcribe([
+    'file' => new Blob(file_get_contents('./call.mp3'), 'audio/mpeg'),
+    'language' => 'en',
+    'redact' => ['pii', 'pci'],
+    'show_redacted_text' => true,
+]);
+
+echo $redacted->text; // "My card number is [CREDIT_CARD_1]."
+```
+
+`pii` does not cover card or bank details, so add `pci`, `bank_account`, and `routing_number` for those. If redaction cannot run, the request fails with a 503 rather than returning an unredacted transcript. Redaction is billed per hour of audio on top of transcription. The streaming endpoint at `wss://api.x.ai/v1/stt` takes the same `redact` query parameters and sends no interim results while it is set. `KNOWN_TRANSCRIPTION_REDACTIONS` lists the groups this release names; any other string is still sent.
 
 Clone a voice from a reference clip of up to 120 seconds with `$client->voice->custom->create()`. Creating custom voices through the API requires an Enterprise plan:
 

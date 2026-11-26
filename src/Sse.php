@@ -75,8 +75,9 @@ final class Sse
                     yield $item;
                 }
             }
-        } finally {
+        } catch (\Throwable $exception) {
             $body->cancel();
+            throw $exception;
         }
     }
 
