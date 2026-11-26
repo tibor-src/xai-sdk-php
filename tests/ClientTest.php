@@ -59,8 +59,8 @@ it('defaults store to false and streams a create that omits stream', function ()
     expect($captured->requests[0]->json()['include'])->toBe(['reasoning.encrypted_content']);
     expect($captured->requests[0]->json()['stream'])->toBeTrue();
     expect($captured->requests[0]->headers->get('accept'))->toBe('text/event-stream');
-    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.11 (php)');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.11');
+    expect($captured->requests[0]->headers->get('user-agent'))->toBe('xai-sdk/0.2.11.1 (php)');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.11.1');
     expect($captured->requests[0]->headers->get('authorization'))->toBe('Bearer k');
 });
 
@@ -120,7 +120,7 @@ it('keeps a caller user agent and overwrites sdk attribution', function () {
     ]);
 
     expect($captured->requests[0]->headers->get('user-agent'))->toBe('curl/8');
-    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.11');
+    expect($captured->requests[0]->headers->get('xai-sdk-version'))->toBe('php/0.2.11.1');
     expect($captured->requests[0]->headers->get('xai-sdk-language'))->toBe('php/' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION);
 });
 

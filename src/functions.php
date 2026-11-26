@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace TiborSrc\XaiSdkPhp;
 
-const SDK_VERSION = '0.2.11';
+const SDK_VERSION = '0.2.11.1';
 const SDK_USER_AGENT = 'xai-sdk/' . SDK_VERSION . ' (php)';
 
 const ENCRYPTED_REASONING = 'reasoning.encrypted_content';

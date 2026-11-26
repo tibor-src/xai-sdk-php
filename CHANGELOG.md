@@ -1,6 +1,12 @@
 # Changelog
 
-All notable changes to this PHP port of the SpaceXSI TypeScript SDK are documented here. Version numbers follow `@xai-official/sdk`.
+All notable changes to this PHP port of the SpaceXSI TypeScript SDK are documented here. Version numbers follow `@xai-official/sdk`. PHP-only subversions such as 0.2.11.1 keep that TypeScript version and add a fourth segment, as 0.2.1.1 did.
+
+## [0.2.11.1] - 2026-11-26
+
+### Changed
+
+- `SDK_VERSION` is `0.2.11.1`. The port still matches `@xai-official/sdk` 0.2.11. Packagist locked published 0.2.11 to an earlier commit, so this subversion is the installable 0.2.11 port (`composer require tibor-src/xai-sdk-php:0.2.11.1`). The `user-agent` and `xai-sdk-version` request headers follow `0.2.11.1`.
 
 ## [0.2.11] - 2026-11-25
 
